@@ -179,13 +179,16 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.setFillColor(CGColor(red: 0.13, green: 0.42, blue: 0.72, alpha: 1))
         ctx.fill(court)
 
-        // Non-volley zone (kitchen) shading
-        let kitchenFrac: CGFloat = 0.155        // ~7 ft on a 44-ft court
-        let kitchenW = court.width * kitchenFrac
+        // Kitchen positions: 7 ft from the net on each side (~15.5% of court width)
+        let kitchenFrac: CGFloat = 0.155
+        let kitchenW      = court.width * kitchenFrac
+        let leftKitchenX  = rect.midX - kitchenW
+        let rightKitchenX = rect.midX + kitchenW
 
+        // Non-volley zone shading sits adjacent to the net, not at the baselines
         ctx.setFillColor(CGColor(red: 0.09, green: 0.32, blue: 0.60, alpha: 1))
-        ctx.fill(CGRect(x: court.minX, y: court.minY, width: kitchenW, height: court.height))
-        ctx.fill(CGRect(x: court.maxX - kitchenW, y: court.minY, width: kitchenW, height: court.height))
+        ctx.fill(CGRect(x: leftKitchenX, y: court.minY, width: kitchenW, height: court.height))
+        ctx.fill(CGRect(x: rect.midX,    y: court.minY, width: kitchenW, height: court.height))
 
         // White court lines
         ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.92))
@@ -194,14 +197,12 @@ class PickleballScreensaverView: ScreenSaverView {
         // Outer boundary
         ctx.stroke(court)
 
-        // Center line (horizontal — splits service courts top/bottom)
+        // Center service line: runs only through the service areas, not across the kitchen or net
         let midY = rect.midY
-        line(ctx, from: CGPoint(x: court.minX, y: midY), to: CGPoint(x: court.maxX, y: midY))
+        line(ctx, from: CGPoint(x: court.minX,    y: midY), to: CGPoint(x: leftKitchenX,  y: midY))
+        line(ctx, from: CGPoint(x: rightKitchenX, y: midY), to: CGPoint(x: court.maxX,    y: midY))
 
-        // Kitchen lines (vertical, 7 ft from net on each side)
-        let leftKitchenX  = rect.midX - kitchenW
-        let rightKitchenX = rect.midX + kitchenW
-
+        // Kitchen lines (vertical)
         line(ctx, from: CGPoint(x: leftKitchenX,  y: court.minY), to: CGPoint(x: leftKitchenX,  y: court.maxY))
         line(ctx, from: CGPoint(x: rightKitchenX, y: court.minY), to: CGPoint(x: rightKitchenX, y: court.maxY))
     }
@@ -257,9 +258,6 @@ class PickleballScreensaverView: ScreenSaverView {
     // MARK: Paddle
 
     private func drawPaddle(ctx: CGContext, centerX: CGFloat, centerY: CGFloat, facingRight: Bool) {
-        // Handle extends away from the net (opposite to hit direction)
-        let handleSign: CGFloat = facingRight ? -1 : 1    // left paddle handle goes left
-
         let faceRect = CGRect(
             x: centerX - paddleFaceW / 2,
             y: centerY - paddleFaceH / 2,

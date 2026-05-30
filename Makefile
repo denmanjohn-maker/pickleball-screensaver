@@ -26,6 +26,9 @@ $(BUNDLE): $(SOURCES) $(PLIST_SRC)
 		-Xlinker -bundle \
 		-o "$(BINARY)"
 	@cp $(PLIST_SRC) $(CONTENTS)/Info.plist
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleExecutable PickleballScreensaver"       $(CONTENTS)/Info.plist
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.pickleball.screensaver"  $(CONTENTS)/Info.plist
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleName PickleballScreensaver"             $(CONTENTS)/Info.plist
 	@echo "Built $(BUNDLE)"
 
 install: $(BUNDLE)
