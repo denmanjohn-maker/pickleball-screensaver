@@ -121,7 +121,7 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func move(_ current: CGFloat, toward target: CGFloat, speed: CGFloat, min: CGFloat, max: CGFloat) -> CGFloat {
         let diff = target - current
-        let step = min(abs(diff), speed) * (diff >= 0 ? 1 : -1)
+        let step = Swift.min(abs(diff), speed) * (diff >= 0 ? 1 : -1)
         return Swift.max(min, Swift.min(max, current + step))
     }
 
