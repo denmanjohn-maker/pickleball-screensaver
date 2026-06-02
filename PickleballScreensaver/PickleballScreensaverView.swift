@@ -35,13 +35,13 @@ class PickleballScreensaverView: ScreenSaverView {
     private let netHeight:   CGFloat = 0.10
     private let baseSpeed:   CGFloat = 0.72
 
-    // Projection — camera at near sideline (z=0), elevated, centered at x=0.5
-    // x=0..1 maps left-right on screen; z=0..1 recedes into screen (depth)
-    private let horizonFrac:   CGFloat = 0.30   // vanishing-point y / screen height
-    private let baselineFrac:  CGFloat = 0.86   // near-sideline y / screen height
-    private let courtHalfFrac: CGFloat = 0.38   // half court length as fraction of screen width (at z=0)
-    private let farScale:      CGFloat = 0.44   // perspective scale at far sideline vs near
-    private let heightScale:   CGFloat = 265    // screen pixels per world Y unit (at z=0)
+    // Projection — AppKit is Y-up (low Y = bottom, high Y = top of screen)
+    // Near sideline sits near bottom; vanishing point toward top.
+    private let horizonFrac:   CGFloat = 0.74   // vanishing point (fraction from bottom)
+    private let baselineFrac:  CGFloat = 0.13   // near sideline (fraction from bottom)
+    private let courtHalfFrac: CGFloat = 0.38   // half court length at near sideline
+    private let farScale:      CGFloat = 0.44   // perspective scale at far sideline
+    private let heightScale:   CGFloat = 265    // pixels per world Y unit at near scale
 
     // Court geometry (normalised 0..1 along court length)
     private let kitchenNearX: CGFloat = 15.0 / 44.0   // ≈ 0.341
@@ -76,13 +76,14 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func proj(_ wx: CGFloat, _ wz: CGFloat, _ wy: CGFloat) -> CGPoint {
         let W = bounds.width, H = bounds.height
-        let baseY    = H * baselineFrac
-        let horizonY = H * horizonFrac
-        let d = 1 - wz   // flip: z=1 is near sideline (bottom), z=0 recedes away
+        let nearY    = H * baselineFrac   // bottom of screen (Y-up: small value)
+        let horizonY = H * horizonFrac    // toward top of screen (Y-up: large value)
+        let d = 1 - wz   // flip: wz=1 is near (bottom), wz=0 recedes to top
         let s = 1.0 + (farScale - 1.0) * d
         let halfW = W * courtHalfFrac
         let sx = W / 2 + (wx - 0.5) * halfW * 2 * s
-        let sy = baseY - d * (baseY - horizonY) - wy * heightScale * s
+        // Depth raises sy toward top; height also raises sy (both + in Y-up)
+        let sy = nearY + d * (horizonY - nearY) + wy * heightScale * s
         return CGPoint(x: sx, y: sy)
     }
 
