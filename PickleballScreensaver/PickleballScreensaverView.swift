@@ -78,16 +78,17 @@ class PickleballScreensaverView: ScreenSaverView {
         let W = bounds.width, H = bounds.height
         let baseY    = H * baselineFrac
         let horizonY = H * horizonFrac
-        let s = 1.0 + (farScale - 1.0) * wz   // 1.0 at near, farScale at far
+        let d = 1 - wz   // flip: z=1 is near sideline (bottom), z=0 recedes away
+        let s = 1.0 + (farScale - 1.0) * d
         let halfW = W * courtHalfFrac
         let sx = W / 2 + (wx - 0.5) * halfW * 2 * s
-        let sy = baseY - wz * (baseY - horizonY) - wy * heightScale * s
+        let sy = baseY - d * (baseY - horizonY) - wy * heightScale * s
         return CGPoint(x: sx, y: sy)
     }
 
     private func proj(_ v: Vec3) -> CGPoint { proj(v.x, v.z, v.y) }
 
-    private func scaleAt(_ wz: CGFloat) -> CGFloat { 1.0 + (farScale - 1.0) * wz }
+    private func scaleAt(_ wz: CGFloat) -> CGFloat { 1.0 + (farScale - 1.0) * (1 - wz) }
 
     // MARK: - Reset
 
@@ -205,7 +206,7 @@ class PickleballScreensaverView: ScreenSaverView {
         drawBackground(ctx: ctx, rect: rect)
         drawCourt(ctx: ctx)
         // Draw each paddle in depth order (farther = drawn first)
-        let lpFirst = leftPaddle.z > rightPaddle.z
+        let lpFirst = leftPaddle.z < rightPaddle.z
         if lpFirst {
             drawPaddle(ctx: ctx, state: leftPaddle,  atX: 0.04, facingRight: true)
             drawNet(ctx: ctx)
