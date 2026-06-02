@@ -153,6 +153,15 @@ class PickleballScreensaverView: ScreenSaverView {
             rallyCount += 1
         }
 
+        // Net clearance: fault if ball crosses z=0.5 below net height
+        let prevZ = ball.z - bVel.z * dt
+        let crossingNet = (prevZ < 0.5 && ball.z >= 0.5) || (prevZ > 0.5 && ball.z <= 0.5)
+        if crossingNet {
+            let t = (0.5 - prevZ) / (ball.z - prevZ)
+            let yAtNet = (ball.y - bVel.y * dt) + bVel.y * dt * t
+            if yAtNet < netHeight { faultTimer = 1.2 }
+        }
+
         // Out of bounds
         if ball.z < -0.15 || ball.z > 1.15 {
             faultTimer = 1.2
