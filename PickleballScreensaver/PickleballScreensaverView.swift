@@ -142,11 +142,15 @@ class PickleballScreensaverView: ScreenSaverView {
         updateSwing(&leftPaddle,  dt: dt)
         updateSwing(&rightPaddle, dt: dt)
 
-        // Net clearance: interpolate ball height at x=0.5 crossing
+        // Net clearance: interpolate ball height at x=0.5 crossing.
+        // Use the pre-gravity velocity (before bVel.y += gravity*dt was applied)
+        // so that the reconstructed prevY and yAtNet are accurate.
+        let prevVelY = bVel.y - gravity * dt
         let prevX = ball.x - bVel.x * dt
         if (prevX < 0.5) != (ball.x < 0.5) {
             let t = (0.5 - prevX) / (ball.x - prevX)
-            let yAtNet = (ball.y - bVel.y * dt) + bVel.y * dt * t
+            let prevY = ball.y - prevVelY * dt
+            let yAtNet = prevY + prevVelY * dt * t + 0.5 * gravity * (dt * t) * (dt * t)
             if yAtNet < netHeight { faultTimer = 1.2 }
         }
 
@@ -251,9 +255,6 @@ class PickleballScreensaverView: ScreenSaverView {
         // Kitchen zones — darker blue adjacent to net on each side
         let knl = proj(kitchenNearX, 0, 0); let knr = proj(kitchenNearX, 1, 0)
         let kfl = proj(kitchenFarX,  0, 0); let kfr = proj(kitchenFarX,  1, 0)
-        let netL = proj(0.5, 0, 0); let netR = proj(0.5, 1, 0)
-        _ = netL; _ = netR   // used in net draw
-
         let kitchenColor = CGColor(red: 0.09, green: 0.32, blue: 0.60, alpha: 1)
         // Near-side kitchen: from kitchenNearX to net (x=0.5)
         fillQuad(ctx, knl, proj(0.5, 0, 0), proj(0.5, 1, 0), knr, color: kitchenColor)
@@ -291,8 +292,8 @@ class PickleballScreensaverView: ScreenSaverView {
 
         let netPath = CGMutablePath()
         netPath.move(to:    CGPoint(x: bNear.x - netBandHalfW, y: bNear.y))
-        netPath.addLine(to: CGPoint(x: bNear.x + netBandHalfW, y: bNear.y))
-        netPath.addLine(to: CGPoint(x: tNear.x + netBandHalfW, y: tNear.y))
+        netPath.addLine(to: CGPoint(x: bFar.x  + netBandHalfW, y: bFar.y))
+        netPath.addLine(to: CGPoint(x: tFar.x  + netBandHalfW, y: tFar.y))
         netPath.addLine(to: CGPoint(x: tNear.x - netBandHalfW, y: tNear.y))
         netPath.closeSubpath()
         ctx.setFillColor(CGColor(red: 0.75, green: 0.78, blue: 0.85, alpha: 0.28))
