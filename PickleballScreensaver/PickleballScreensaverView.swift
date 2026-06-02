@@ -92,11 +92,18 @@ class PickleballScreensaverView: ScreenSaverView {
 
     // MARK: - Reset
 
+    // Compute vy0 so the ball clears netHeight by `margin` when it crosses x=0.5.
+    // Solves y(tNet) = vy0*tNet + 0.5*gravity*tNet² = netHeight + margin.
+    private func launchVy(fromX: CGFloat, xSpeed: CGFloat, margin: CGFloat = 0.06) -> CGFloat {
+        let tNet = abs(0.5 - fromX) / xSpeed
+        return (netHeight + margin - 0.5 * gravity * tNet * tNet) / tNet
+    }
+
     private func resetRally(leftServes: Bool) {
         let startX: CGFloat = leftServes ? 0.05 : 0.95
         let vx = leftServes ? baseSpeed : -baseSpeed
         ball = Vec3(x: startX, y: 0.0, z: CGFloat.random(in: 0.3...0.7))
-        let vy0 = sqrt(2.0 * abs(gravity) * (netHeight + 0.07))
+        let vy0 = launchVy(fromX: startX, xSpeed: baseSpeed)
         bVel = Vec3(x: vx, y: vy0, z: CGFloat.random(in: -0.04...0.04))
         leftPaddle  = PaddleState(z: 0.5, swingAngle: 0, swingPhase: false, swingT: 0)
         rightPaddle = PaddleState(z: 0.5, swingAngle: 0, swingPhase: false, swingT: 0)
@@ -183,12 +190,14 @@ class PickleballScreensaverView: ScreenSaverView {
     }
 
     private func hitBall(goingRight: Bool, paddle: inout PaddleState) {
-        let vx = (goingRight ? 1 : -1) * (baseSpeed + CGFloat.random(in: 0...0.15))
-        let vy0 = sqrt(2.0 * abs(gravity) * (netHeight + CGFloat.random(in: 0.04...0.12)))
-        bVel.x = vx
+        let fromX: CGFloat = goingRight ? 0.07 : 0.93
+        let xSpeed = baseSpeed + CGFloat.random(in: 0...0.15)
+        let extraArc = CGFloat.random(in: 0.04...0.12)
+        let vy0 = launchVy(fromX: fromX, xSpeed: xSpeed, margin: 0.06 + extraArc)
+        bVel.x = (goingRight ? 1 : -1) * xSpeed
         bVel.y = vy0
         bVel.z = CGFloat.random(in: -0.08...0.08)
-        ball.x = goingRight ? 0.07 : 0.93
+        ball.x = fromX
         paddle.swingPhase = true
         paddle.swingT = 0
     }
