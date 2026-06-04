@@ -1,0 +1,8 @@
+# Build output
+PickleballScreensaver.saver/
+
+# macOS
+.DS_Store
+
+# Xcode user state
+**/xcuserdata/
