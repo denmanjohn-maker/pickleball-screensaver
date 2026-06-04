@@ -32,7 +32,7 @@ class PickleballScreensaverView: ScreenSaverView {
     // Physics
     private let gravity:    CGFloat = -2.6
     private let bounceDamp: CGFloat = 0.55
-    private let netHeight:  CGFloat = 0.16
+    private let netHeight:  CGFloat = 0.32
     private let zSpeed:     CGFloat = 0.52   // depth speed of the ball (units / sec)
     private let paddleSpeed: CGFloat = 1.30  // lateral tracking speed (units / sec)
 
@@ -54,6 +54,9 @@ class PickleballScreensaverView: ScreenSaverView {
     private let blueBox    = CGColor(red: 0.13, green: 0.32, blue: 0.62, alpha: 1)
     private let whiteLine  = CGColor(red: 1, green: 1, blue: 1, alpha: 0.95)
 
+    // Ball spin
+    private var ballSpin: CGFloat = 0
+
     // Rally state
     private var rallyCount = 0
     private var lastFrameTime: TimeInterval = 0
@@ -73,6 +76,7 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func setup() {
         animationTimeInterval = 1.0 / 60.0
+        wantsLayer = true
         resetRally(nearServes: true)
     }
 
@@ -113,6 +117,7 @@ class PickleballScreensaverView: ScreenSaverView {
         farPaddle  = PaddleState(x: 0, swingAngle: 0, swingPhase: false, swingT: 0)
         trailPoints.removeAll()
         faultTimer = 0
+        ballSpin = 0
     }
 
     // MARK: - Animation loop
@@ -182,6 +187,10 @@ class PickleballScreensaverView: ScreenSaverView {
                 faultTimer = 1.0
             }
         }
+
+        // Spin
+        let linearSpd = sqrt(bVel.x * bVel.x + bVel.z * bVel.z)
+        ballSpin += linearSpd * 18.0 * dt
 
         // Trail
         trailPoints.append(ball)
@@ -304,13 +313,13 @@ class PickleballScreensaverView: ScreenSaverView {
         // Vertical strands
         ctx.setStrokeColor(CGColor(red: 0.16, green: 0.17, blue: 0.18, alpha: 0.65))
         ctx.setLineWidth(0.8)
-        let vSteps = 40
+        let vSteps = 55
         for i in 0...vSteps {
             let wx = -1 + 2 * CGFloat(i) / CGFloat(vSteps)
             line(ctx, from: proj(wx, 0.5, 0), to: proj(wx, 0.5, nh))
         }
         // Horizontal strands
-        let hSteps = 7
+        let hSteps = 10
         for i in 1..<hSteps {
             let wy = nh * CGFloat(i) / CGFloat(hSteps)
             line(ctx, from: proj(-1, 0.5, wy), to: proj(1, 0.5, wy))
@@ -318,7 +327,7 @@ class PickleballScreensaverView: ScreenSaverView {
 
         // White top tape
         ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.95))
-        ctx.setLineWidth(3.5)
+        ctx.setLineWidth(6.0)
         line(ctx, from: tl, to: tr)
 
         // Posts: center + sides
@@ -330,7 +339,7 @@ class PickleballScreensaverView: ScreenSaverView {
     private func drawPost(_ ctx: CGContext, atX wx: CGFloat) {
         let base = proj(wx, 0.5, 0)
         let top  = proj(wx, 0.5, netHeight)
-        let w: CGFloat = 4 * scale(0.5)
+        let w: CGFloat = 7 * scale(0.5)
         ctx.setStrokeColor(CGColor(red: 0.08, green: 0.09, blue: 0.10, alpha: 1))
         ctx.setLineWidth(w)
         ctx.setLineCap(.round)
@@ -344,8 +353,8 @@ class PickleballScreensaverView: ScreenSaverView {
         let sp = proj(ball.x, ball.z, 0)
         let fade = max(0, 1 - ball.y / 0.6)
         let s = scale(ball.z)
-        let rw: CGFloat = 15 * s * fade
-        let rh: CGFloat = 6  * s * fade
+        let rw: CGFloat = 26 * s * fade
+        let rh: CGFloat = 10 * s * fade
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.32 * fade))
         ctx.fillEllipse(in: CGRect(x: sp.x - rw, y: sp.y - rh, width: rw * 2, height: rh * 2))
     }
@@ -357,7 +366,7 @@ class PickleballScreensaverView: ScreenSaverView {
         for (i, t) in trailPoints.enumerated() {
             let frac = CGFloat(i) / CGFloat(count)
             let s = scale(t.z)
-            let r = 11.0 * s * frac * 0.6
+            let r = 20.0 * s * frac * 0.6
             let p = proj(t)
             ctx.setFillColor(CGColor(red: 1, green: 0.85, blue: 0.1, alpha: frac * 0.28))
             ctx.fillEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
@@ -369,34 +378,44 @@ class PickleballScreensaverView: ScreenSaverView {
     private func drawBall(ctx: CGContext) {
         let p = proj(ball)
         let s = scale(ball.z)
-        let r: CGFloat = 13 * s
+        let r: CGFloat = 26 * s
+        let rim: CGFloat = 1.8 * s
 
         // Dark outline ring
         ctx.setFillColor(CGColor(red: 0.05, green: 0.05, blue: 0.05, alpha: 1))
-        ctx.fillEllipse(in: CGRect(x: p.x - r - 1.2, y: p.y - r - 1.2, width: (r + 1.2) * 2, height: (r + 1.2) * 2))
+        ctx.fillEllipse(in: CGRect(x: p.x - r - rim, y: p.y - r - rim,
+                                   width: (r + rim) * 2, height: (r + rim) * 2))
 
-        // Body
+        // Yellow body
         ctx.setFillColor(CGColor(red: 0.96, green: 0.82, blue: 0.05, alpha: 1))
         ctx.fillEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
 
-        // Highlight
-        ctx.setFillColor(CGColor(red: 1, green: 0.96, blue: 0.55, alpha: 0.55))
-        ctx.fillEllipse(in: CGRect(x: p.x - r * 0.4, y: p.y + r * 0.12, width: r * 0.8, height: r * 0.55))
-
-        // Holes with dark rings
-        let offsets: [(CGFloat, CGFloat)] = [
-            (0, 0), (-0.5, 0), (0.5, 0), (0, 0.5), (0, -0.5),
-            (-0.33, 0.36), (0.33, 0.36), (-0.33, -0.36), (0.33, -0.36)
-        ]
-        for (dx, dy) in offsets {
-            let hr: CGFloat = max(1.4, 2.3 * s)
-            let hx = p.x + dx * r, hy = p.y + dy * r
-            ctx.setFillColor(CGColor(red: 0.05, green: 0.05, blue: 0.05, alpha: 0.9))
+        // Transparent holes — punch through with .clear so the court shows through
+        ctx.saveGState()
+        ctx.translateBy(x: p.x, y: p.y)
+        ctx.rotate(by: ballSpin)
+        ctx.setBlendMode(.clear)
+        let hr: CGFloat = max(2.5, 4.0 * s)
+        // Inner ring: 5 holes evenly spaced
+        for i in 0..<5 {
+            let a = CGFloat(i) / 5 * .pi * 2
+            let hx = cos(a) * r * 0.40
+            let hy = sin(a) * r * 0.40
             ctx.fillEllipse(in: CGRect(x: hx - hr, y: hy - hr, width: hr * 2, height: hr * 2))
-            ctx.setFillColor(CGColor(red: 0.80, green: 0.66, blue: 0.04, alpha: 1))
-            let ir = hr * 0.5
-            ctx.fillEllipse(in: CGRect(x: hx - ir, y: hy - ir, width: ir * 2, height: ir * 2))
         }
+        // Outer ring: 6 holes offset by π/6 for asymmetry (makes spin obvious)
+        for i in 0..<6 {
+            let a = CGFloat(i) / 6 * .pi * 2 + .pi / 6
+            let hx = cos(a) * r * 0.72
+            let hy = sin(a) * r * 0.72
+            ctx.fillEllipse(in: CGRect(x: hx - hr, y: hy - hr, width: hr * 2, height: hr * 2))
+        }
+        ctx.restoreGState()
+
+        // Fixed highlight (light direction doesn't rotate with ball)
+        ctx.setFillColor(CGColor(red: 1, green: 0.96, blue: 0.55, alpha: 0.50))
+        ctx.fillEllipse(in: CGRect(x: p.x - r * 0.38, y: p.y + r * 0.15,
+                                   width: r * 0.76, height: r * 0.50))
     }
 
     // MARK: - Paddle (charcoal with skull & crossbones)
@@ -405,10 +424,10 @@ class PickleballScreensaverView: ScreenSaverView {
         let s = scale(wz)
         let pivot = proj(state.x, wz, 0.0)
 
-        let faceW: CGFloat = 56 * s
-        let faceH: CGFloat = 72 * s
-        let handleLen: CGFloat = 40 * s
-        let handleW:   CGFloat = 14 * s
+        let faceW: CGFloat = 88 * s
+        let faceH: CGFloat = 80 * s
+        let handleLen: CGFloat = 30 * s
+        let handleW:   CGFloat = 16 * s
 
         ctx.saveGState()
         ctx.translateBy(x: pivot.x, y: pivot.y)
@@ -462,7 +481,7 @@ class PickleballScreensaverView: ScreenSaverView {
     private func drawSkull(_ ctx: CGContext, center: CGPoint, scale s: CGFloat) {
         let white = CGColor(red: 0.95, green: 0.96, blue: 0.97, alpha: 1)
         let dark  = CGColor(red: 0.17, green: 0.20, blue: 0.21, alpha: 1)
-        let headR: CGFloat = 13 * s
+        let headR: CGFloat = 20 * s
 
         // Crossbones (two crossed capsules behind skull)
         ctx.setStrokeColor(white)
