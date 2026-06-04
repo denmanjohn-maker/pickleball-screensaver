@@ -14,6 +14,7 @@ private struct PaddleState {
     var swingAngle: CGFloat = 0
     var swingPhase = false
     var swingT: CGFloat = 0
+    var swingDir: CGFloat = 1   // +1 = forehand (right→left), -1 = backhand (left→right)
 }
 
 // MARK: - Screensaver
@@ -219,6 +220,7 @@ class PickleballScreensaverView: ScreenSaverView {
         bVel.y = vy0
         bVel.z = dir * zSpeed
         bVel.x = CGFloat.random(in: -0.18...0.18)
+        paddle.swingDir = (ball.x >= paddle.x) ? 1.0 : -1.0
         paddle.swingPhase = true
         paddle.swingT = 0
     }
@@ -226,7 +228,10 @@ class PickleballScreensaverView: ScreenSaverView {
     private func updateSwing(_ p: inout PaddleState, dt: CGFloat) {
         guard p.swingPhase else { return }
         p.swingT += dt * 3.0
-        p.swingAngle = sin(p.swingT * .pi) * 1.0
+        let t = min(p.swingT, 1)
+        let ease = t * t * (3 - 2 * t)   // smoothstep
+        // Sweep from tilted-ready (-0.55) through contact (~0) to follow-through (+0.60)
+        p.swingAngle = p.swingDir * (-0.55 + 1.15 * ease)
         if p.swingT >= 1 { p.swingPhase = false; p.swingAngle = 0; p.swingT = 0 }
     }
 
@@ -248,6 +253,7 @@ class PickleballScreensaverView: ScreenSaverView {
         drawTrail(ctx: ctx)
         drawBall(ctx: ctx)
         drawPaddle(ctx: ctx, state: nearPaddle, wz: nearPaddleZ)  // near paddle in front
+        drawClock(ctx: ctx, rect: rect)
         drawRallyCounter(ctx: ctx, rect: rect)
     }
 
@@ -525,6 +531,33 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.addLine(to: CGPoint(x: center.x + nb, y: center.y - headR * 0.45))
         ctx.closePath()
         ctx.fillPath()
+    }
+
+    // MARK: - Clock (bottom-left)
+
+    private func drawClock(ctx: CGContext, rect: NSRect) {
+        let now = Date()
+        let timeFmt = DateFormatter()
+        timeFmt.dateFormat = "h:mm a"
+        let dateFmt = DateFormatter()
+        dateFmt.dateFormat = "EEEE, MMMM d"
+
+        let timeAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 48, weight: .thin),
+            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.85)
+        ]
+        let dateAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 20, weight: .light),
+            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.55)
+        ]
+
+        let timeAS = NSAttributedString(string: timeFmt.string(from: now), attributes: timeAttrs)
+        let dateAS = NSAttributedString(string: dateFmt.string(from: now), attributes: dateAttrs)
+
+        let x: CGFloat = rect.width * 0.04
+        let timeY: CGFloat = rect.height * 0.06
+        timeAS.draw(at: NSPoint(x: x, y: timeY))
+        dateAS.draw(at: NSPoint(x: x, y: timeY + timeAS.size().height + 4))
     }
 
     // MARK: - Rally counter
