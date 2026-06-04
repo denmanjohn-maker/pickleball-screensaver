@@ -253,7 +253,8 @@ class PickleballScreensaverView: ScreenSaverView {
         drawTrail(ctx: ctx)
         drawBall(ctx: ctx)
         drawPaddle(ctx: ctx, state: nearPaddle, wz: nearPaddleZ)  // near paddle in front
-        drawClock(ctx: ctx, rect: rect)        drawRallyCounter(ctx: ctx, rect: rect)
+        drawClock(ctx: ctx, rect: rect)
+        drawRallyCounter(ctx: ctx, rect: rect)
     }
 
     // MARK: - Background
