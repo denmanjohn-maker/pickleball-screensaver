@@ -253,8 +253,7 @@ class PickleballScreensaverView: ScreenSaverView {
         drawTrail(ctx: ctx)
         drawBall(ctx: ctx)
         drawPaddle(ctx: ctx, state: nearPaddle, wz: nearPaddleZ)  // near paddle in front
-        drawClock(ctx: ctx, rect: rect)
-        drawRallyCounter(ctx: ctx, rect: rect)
+        drawClock(ctx: ctx, rect: rect)        drawRallyCounter(ctx: ctx, rect: rect)
     }
 
     // MARK: - Background
@@ -553,35 +552,52 @@ class PickleballScreensaverView: ScreenSaverView {
     // MARK: - Clock (bottom-left)
 
     private func drawClock(ctx: CGContext, rect: NSRect) {
-        // Size and position relative to the bottom-left blue service box
-        let cornerBL = proj(-1, 0, 0)
-        let cornerTL = proj(-1, kitchenNearZ, 0)
-        let boxH = cornerTL.y - cornerBL.y
-
-        let timeFontSize = boxH * 0.42
-        let dateFontSize = boxH * 0.14
-        let textX = cornerBL.x + 6
-
         let now = Date()
         let timeFmt = DateFormatter(); timeFmt.dateFormat = "h:mm a"
         let dateFmt = DateFormatter(); dateFmt.dateFormat = "EEEE, MMMM d"
 
-        let timeAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: timeFontSize, weight: .thin),
-            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.88)
-        ]
-        let dateAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: dateFontSize, weight: .light),
-            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.60)
-        ]
+        // Anchor in the left green apron, aligned with the sideline direction (yellow arrow)
+        let anchor = proj(-1.065, 0.07, 0)
+        let ahead  = proj(-1.065, 0.52, 0)
+        let angle  = atan2(ahead.y - anchor.y, ahead.x - anchor.x)
 
-        let timeAS = NSAttributedString(string: timeFmt.string(from: now), attributes: timeAttrs)
-        let dateAS = NSAttributedString(string: dateFmt.string(from: now), attributes: dateAttrs)
+        // Font sizes scale with apron strip width at runtime
+        let aInner = proj(-1.00, 0.14, 0)
+        let aOuter = proj(-1.15, 0.14, 0)
+        let apronPx = hypot(aInner.x - aOuter.x, aInner.y - aOuter.y)
+        let tSize = max(18, apronPx * 0.90)
+        let dSize = max(10, apronPx * 0.32)
 
-        let dateY = cornerBL.y + 8
-        let timeY = dateY + dateFontSize * 1.3 + 4
-        dateAS.draw(at: NSPoint(x: textX, y: dateY))
-        timeAS.draw(at: NSPoint(x: textX, y: timeY))
+        // Court-tinted bevel colors — text looks painted/inlaid on the surface
+        let shadow = NSColor(red: 0.14, green: 0.28, blue: 0.20, alpha: 0.90)
+        let hilite = NSColor(red: 0.52, green: 0.76, blue: 0.60, alpha: 0.55)
+        let mainC  = NSColor(red: 0.40, green: 0.64, blue: 0.48, alpha: 0.95)
+
+        ctx.saveGState()
+        ctx.translateBy(x: anchor.x, y: anchor.y)
+        ctx.rotate(by: angle)
+
+        let bv = tSize * 0.04
+
+        func bevelDraw(_ str: String, size: CGFloat, ox: CGFloat, oy: CGFloat) {
+            for (color, dx, dy): (NSColor, CGFloat, CGFloat) in [
+                (shadow,  bv,        -bv),
+                (hilite, -bv * 0.5,   bv * 0.5),
+                (mainC,   0,           0)
+            ] {
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: size, weight: .heavy),
+                    .foregroundColor: color
+                ]
+                NSAttributedString(string: str, attributes: attrs)
+                    .draw(at: NSPoint(x: ox + dx, y: oy + dy))
+            }
+        }
+
+        bevelDraw(timeFmt.string(from: now), size: tSize, ox: 4, oy: -tSize * 0.80)
+        bevelDraw(dateFmt.string(from: now), size: dSize, ox: 4, oy: -tSize * 0.80 - dSize * 1.25)
+
+        ctx.restoreGState()
     }
 
     // MARK: - Rally counter
