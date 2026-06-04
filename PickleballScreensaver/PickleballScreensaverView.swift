@@ -424,10 +424,10 @@ class PickleballScreensaverView: ScreenSaverView {
         let s = scale(wz)
         let pivot = proj(state.x, wz, 0.0)
 
-        let faceW: CGFloat = 88 * s
-        let faceH: CGFloat = 80 * s
-        let handleLen: CGFloat = 30 * s
-        let handleW:   CGFloat = 16 * s
+        let faceW: CGFloat = 82 * s
+        let faceH: CGFloat = 108 * s
+        let handleLen: CGFloat = 58 * s
+        let handleW:   CGFloat = 14 * s
 
         ctx.saveGState()
         ctx.translateBy(x: pivot.x, y: pivot.y)
