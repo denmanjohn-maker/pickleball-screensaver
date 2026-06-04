@@ -230,8 +230,8 @@ class PickleballScreensaverView: ScreenSaverView {
         p.swingT += dt * 3.0
         let t = min(p.swingT, 1)
         let ease = t * t * (3 - 2 * t)   // smoothstep
-        // Sweep from tilted-ready (-0.55) through contact (~0) to follow-through (+0.60)
-        p.swingAngle = p.swingDir * (-0.55 + 1.15 * ease)
+        // Sweep from low-back ready (-1.0) through contact (~0) to high follow-through (+0.8)
+        p.swingAngle = p.swingDir * (-1.0 + 1.8 * ease)
         if p.swingT >= 1 { p.swingPhase = false; p.swingAngle = 0; p.swingT = 0 }
     }
 
@@ -290,6 +290,19 @@ class PickleballScreensaverView: ScreenSaverView {
         // Far half: far kitchen line → far baseline (1)
         fillQuad(ctx, proj(-1, kitchenFarZ, 0), proj(0, kitchenFarZ, 0), proj(0, 1, 0), proj(-1, 1, 0), color: blueBox)
         fillQuad(ctx, proj(0, kitchenFarZ, 0),  proj(1, kitchenFarZ, 0), proj(1, 1, 0), proj(0, 1, 0),  color: blueBox)
+
+        // Subtle surface texture — perspective-correct horizontal lines follow court depth
+        ctx.saveGState()
+        let courtPath = CGMutablePath()
+        courtPath.move(to: proj(-1.15, -0.05, 0)); courtPath.addLine(to: proj(1.15, -0.05, 0))
+        courtPath.addLine(to: proj(1.15, 1.05, 0)); courtPath.addLine(to: proj(-1.15, 1.05, 0))
+        courtPath.closeSubpath()
+        ctx.addPath(courtPath); ctx.clip()
+        ctx.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.06))
+        ctx.setLineWidth(0.6)
+        var tz: CGFloat = 0
+        while tz <= 1.1 { line(ctx, from: proj(-1.3, tz, 0), to: proj(1.3, tz, 0)); tz += 0.04 }
+        ctx.restoreGState()
 
         // White lines
         ctx.setStrokeColor(whiteLine)
@@ -361,7 +374,11 @@ class PickleballScreensaverView: ScreenSaverView {
         let s = scale(ball.z)
         let rw: CGFloat = 26 * s * fade
         let rh: CGFloat = 10 * s * fade
-        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.32 * fade))
+        // Soft penumbra
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.12 * fade))
+        ctx.fillEllipse(in: CGRect(x: sp.x - rw * 1.5, y: sp.y - rh * 1.5, width: rw * 3, height: rh * 3))
+        // Hard core shadow
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.45 * fade))
         ctx.fillEllipse(in: CGRect(x: sp.x - rw, y: sp.y - rh, width: rw * 2, height: rh * 2))
     }
 
@@ -428,7 +445,7 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func drawPaddle(ctx: CGContext, state: PaddleState, wz: CGFloat) {
         let s = scale(wz)
-        let pivot = proj(state.x, wz, 0.0)
+        let pivot = proj(state.x, wz, 0.08)   // waist height — face arcs upward through contact
 
         let faceW: CGFloat = 82 * s
         let faceH: CGFloat = 108 * s
@@ -439,10 +456,10 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.translateBy(x: pivot.x, y: pivot.y)
         ctx.rotate(by: state.swingAngle)
 
-        // Stack above the floor pivot: handle first, then face
-        let handleRect = CGRect(x: -handleW / 2, y: 0,          width: handleW, height: handleLen)
-        let faceRect   = CGRect(x: -faceW / 2,   y: handleLen,  width: faceW,   height: faceH)
-        let faceCenter = CGPoint(x: 0, y: handleLen + faceH * 0.52)
+        // Handle hangs DOWN from grip pivot; face extends UP
+        let handleRect = CGRect(x: -handleW / 2, y: -handleLen, width: handleW, height: handleLen)
+        let faceRect   = CGRect(x: -faceW / 2,   y: 0,          width: faceW,   height: faceH)
+        let faceCenter = CGPoint(x: 0, y: faceH * 0.52)
 
         // Shadow pass
         ctx.saveGState()
@@ -536,28 +553,35 @@ class PickleballScreensaverView: ScreenSaverView {
     // MARK: - Clock (bottom-left)
 
     private func drawClock(ctx: CGContext, rect: NSRect) {
+        // Size and position relative to the bottom-left blue service box
+        let cornerBL = proj(-1, 0, 0)
+        let cornerTL = proj(-1, kitchenNearZ, 0)
+        let boxH = cornerTL.y - cornerBL.y
+
+        let timeFontSize = boxH * 0.42
+        let dateFontSize = boxH * 0.14
+        let textX = cornerBL.x + 6
+
         let now = Date()
-        let timeFmt = DateFormatter()
-        timeFmt.dateFormat = "h:mm a"
-        let dateFmt = DateFormatter()
-        dateFmt.dateFormat = "EEEE, MMMM d"
+        let timeFmt = DateFormatter(); timeFmt.dateFormat = "h:mm a"
+        let dateFmt = DateFormatter(); dateFmt.dateFormat = "EEEE, MMMM d"
 
         let timeAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 48, weight: .thin),
-            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.85)
+            .font: NSFont.systemFont(ofSize: timeFontSize, weight: .thin),
+            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.88)
         ]
         let dateAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 20, weight: .light),
-            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.55)
+            .font: NSFont.systemFont(ofSize: dateFontSize, weight: .light),
+            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.60)
         ]
 
         let timeAS = NSAttributedString(string: timeFmt.string(from: now), attributes: timeAttrs)
         let dateAS = NSAttributedString(string: dateFmt.string(from: now), attributes: dateAttrs)
 
-        let x: CGFloat = rect.width * 0.04
-        let timeY: CGFloat = rect.height * 0.06
-        timeAS.draw(at: NSPoint(x: x, y: timeY))
-        dateAS.draw(at: NSPoint(x: x, y: timeY + timeAS.size().height + 4))
+        let dateY = cornerBL.y + 8
+        let timeY = dateY + dateFontSize * 1.3 + 4
+        dateAS.draw(at: NSPoint(x: textX, y: dateY))
+        timeAS.draw(at: NSPoint(x: textX, y: timeY))
     }
 
     // MARK: - Rally counter
