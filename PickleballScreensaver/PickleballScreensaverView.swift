@@ -1,5 +1,6 @@
 import ScreenSaver
 import AppKit
+import EventKit
 
 // MARK: - Types
 
@@ -55,6 +56,10 @@ class PickleballScreensaverView: ScreenSaverView {
     private let blueBox    = CGColor(red: 0.13, green: 0.32, blue: 0.62, alpha: 1)
     private let whiteLine  = CGColor(red: 1, green: 1, blue: 1, alpha: 0.95)
 
+    // Calendar
+    private let eventStore = EKEventStore()
+    private var todayEvents: [EKEvent] = []
+
     // Ball spin
     private var ballSpin: CGFloat = 0
 
@@ -79,6 +84,27 @@ class PickleballScreensaverView: ScreenSaverView {
         animationTimeInterval = 1.0 / 60.0
         wantsLayer = true
         resetRally(nearServes: true)
+        fetchTodayEvents()
+    }
+
+    private func fetchTodayEvents() {
+        let request = { [weak self] in
+            guard let self else { return }
+            let cal = Calendar.current
+            let start = cal.startOfDay(for: Date())
+            let end   = cal.date(byAdding: .day, value: 1, to: start)!
+            let pred  = self.eventStore.predicateForEvents(withStart: start, end: end, calendars: nil)
+            let events = self.eventStore.events(matching: pred)
+                .sorted { $0.startDate < $1.startDate }
+            DispatchQueue.main.async { self.todayEvents = events }
+        }
+        if EKEventStore.authorizationStatus(for: .event) == .authorized {
+            request()
+        } else {
+            eventStore.requestAccess(to: .event) { granted, _ in
+                if granted { request() }
+            }
+        }
     }
 
     // MARK: - Projection (behind-baseline perspective, AppKit Y-up)
@@ -254,6 +280,7 @@ class PickleballScreensaverView: ScreenSaverView {
         drawBall(ctx: ctx)
         drawPaddle(ctx: ctx, state: nearPaddle, wz: nearPaddleZ)  // near paddle in front
         drawClock(ctx: ctx, rect: rect)
+        drawCalendar(ctx: ctx, rect: rect)
         drawRallyCounter(ctx: ctx, rect: rect)
     }
 
@@ -600,6 +627,73 @@ class PickleballScreensaverView: ScreenSaverView {
         let timeY = dateY + dSize * 1.3 + 4
         dateAS.draw(at: NSPoint(x: x, y: dateY))
         timeAS.draw(at: NSPoint(x: x, y: timeY))
+    }
+
+    // MARK: - Calendar (right blue service box)
+
+    private func drawCalendar(ctx: CGContext, rect: NSRect) {
+        let boxBL = proj(0,  0, 0)
+        let boxBR = proj(1,  0, 0)
+        let boxTR = proj(1,  kitchenNearZ, 0)
+        let boxTL = proj(0,  kitchenNearZ, 0)
+        let boxW  = boxBR.x - boxBL.x
+        let boxH  = boxTL.y - boxBL.y
+
+        let pad   = boxW * 0.06
+        let x     = boxBL.x + pad
+        let maxW  = boxW - pad * 2
+
+        let headerSize: CGFloat = min(boxH * 0.13, maxW * 0.09)
+        let rowSize:    CGFloat = min(boxH * 0.09, maxW * 0.06)
+        let lineH       = rowSize * 1.45
+
+        let timeFmt = DateFormatter(); timeFmt.dateFormat = "h:mm a"
+
+        // "TODAY" header
+        let headerAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: headerSize, weight: .semibold),
+            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.55)
+        ]
+        let headerStr = NSAttributedString(string: "TODAY", attributes: headerAttrs)
+        var curY = boxTL.y - headerSize * 1.5
+        headerStr.draw(at: NSPoint(x: x, y: curY))
+        curY -= headerSize * 0.4
+
+        // Divider line
+        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.20))
+        ctx.setLineWidth(0.8)
+        line(ctx, from: CGPoint(x: x, y: curY), to: CGPoint(x: boxBR.x - pad, y: curY))
+        curY -= rowSize * 0.6
+
+        let rowAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: rowSize, weight: .regular),
+            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.85)
+        ]
+        let timeAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: rowSize * 0.80, weight: .light),
+            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.50)
+        ]
+
+        if todayEvents.isEmpty {
+            let none = NSAttributedString(string: "No events", attributes: timeAttrs)
+            none.draw(at: NSPoint(x: x, y: curY - lineH))
+        } else {
+            for event in todayEvents {
+                curY -= lineH
+                if curY < boxBL.y + rowSize { break }
+
+                // Time label
+                let timeStr = event.isAllDay ? "All day" : timeFmt.string(from: event.startDate)
+                NSAttributedString(string: timeStr, attributes: timeAttrs)
+                    .draw(at: NSPoint(x: x, y: curY))
+
+                // Event title (truncated to fit box width)
+                let titleX = x + rowSize * 4.5
+                let titleAS = NSAttributedString(string: event.title ?? "", attributes: rowAttrs)
+                let titleRect = CGRect(x: titleX, y: curY, width: maxW - rowSize * 4.5, height: lineH)
+                titleAS.draw(with: titleRect, options: .truncatesLastVisibleLine)
+            }
+        }
     }
 
     // MARK: - Rally counter
