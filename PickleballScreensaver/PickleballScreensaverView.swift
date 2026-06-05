@@ -291,17 +291,32 @@ class PickleballScreensaverView: ScreenSaverView {
         fillQuad(ctx, proj(-1, kitchenFarZ, 0), proj(0, kitchenFarZ, 0), proj(0, 1, 0), proj(-1, 1, 0), color: blueBox)
         fillQuad(ctx, proj(0, kitchenFarZ, 0),  proj(1, kitchenFarZ, 0), proj(1, 1, 0), proj(0, 1, 0),  color: blueBox)
 
-        // Subtle surface texture — perspective-correct horizontal lines follow court depth
+        // Court surface texture — perspective-correct horizontal + vertical grain lines
         ctx.saveGState()
         let courtPath = CGMutablePath()
         courtPath.move(to: proj(-1.15, -0.05, 0)); courtPath.addLine(to: proj(1.15, -0.05, 0))
         courtPath.addLine(to: proj(1.15, 1.05, 0)); courtPath.addLine(to: proj(-1.15, 1.05, 0))
         courtPath.closeSubpath()
         ctx.addPath(courtPath); ctx.clip()
-        ctx.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.06))
-        ctx.setLineWidth(0.6)
-        var tz: CGFloat = 0
-        while tz <= 1.1 { line(ctx, from: proj(-1.3, tz, 0), to: proj(1.3, tz, 0)); tz += 0.04 }
+
+        // Horizontal rows (follow court depth perspective)
+        ctx.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.18))
+        ctx.setLineWidth(0.7)
+        var tz: CGFloat = -0.02
+        while tz <= 1.1 {
+            line(ctx, from: proj(-1.3, tz, 0), to: proj(1.3, tz, 0))
+            tz += 0.028
+        }
+
+        // Vertical columns (fixed-width in world-x, narrow toward the far end)
+        ctx.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.08))
+        ctx.setLineWidth(0.5)
+        var tx: CGFloat = -1.15
+        while tx <= 1.15 {
+            line(ctx, from: proj(tx, -0.05, 0), to: proj(tx, 1.05, 0))
+            tx += 0.07
+        }
+
         ctx.restoreGState()
 
         // White lines
