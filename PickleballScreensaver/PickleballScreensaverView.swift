@@ -98,10 +98,10 @@ class PickleballScreensaverView: ScreenSaverView {
                 .sorted { $0.startDate < $1.startDate }
             DispatchQueue.main.async { self.todayEvents = events }
         }
-        if EKEventStore.authorizationStatus(for: .event) == .authorized {
+        if EKEventStore.authorizationStatus(for: .event) == .fullAccess {
             request()
         } else {
-            eventStore.requestAccess(to: .event) { granted, _ in
+            eventStore.requestFullAccessToEvents { granted, _ in
                 if granted { request() }
             }
         }
@@ -634,7 +634,7 @@ class PickleballScreensaverView: ScreenSaverView {
     private func drawCalendar(ctx: CGContext, rect: NSRect) {
         let boxBL = proj(0,  0, 0)
         let boxBR = proj(1,  0, 0)
-        let boxTR = proj(1,  kitchenNearZ, 0)
+        let _ = proj(1,  kitchenNearZ, 0)
         let boxTL = proj(0,  kitchenNearZ, 0)
         let boxW  = boxBR.x - boxBL.x
         let boxH  = boxTL.y - boxBL.y
