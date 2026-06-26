@@ -44,7 +44,7 @@
 			path = PickleballScreensaver;
 			sourceTree = "<group>";
 		};
-		AA44000000000003 /* MainGroup */ = {
+		AA44000000000003 = {
 			isa = PBXGroup;
 			children = (
 				AA44000000000002 /* PickleballScreensaver */,
@@ -96,7 +96,7 @@
 				en,
 				Base,
 			);
-			mainGroup = AA44000000000003 /* MainGroup */;
+			mainGroup = AA44000000000003;
 			productRefGroup = AA44000000000001 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -245,7 +245,7 @@
 			};
 			name = Release;
 		};
-		AA99000000000003 /* Debug (target) */ = {
+		AA99000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				COMBINE_HIDPI_IMAGES = YES;
@@ -255,14 +255,17 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.pickleball.screensaver";
+				PRODUCT_BUNDLE_IDENTIFIER = com.pickleball.screensaver;
 				PRODUCT_NAME = PickleballScreensaver;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
 				WRAPPER_EXTENSION = saver;
 			};
 			name = Debug;
 		};
-		AA99000000000004 /* Release (target) */ = {
+		AA99000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				COMBINE_HIDPI_IMAGES = YES;
@@ -272,9 +275,12 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "com.pickleball.screensaver";
+				PRODUCT_BUNDLE_IDENTIFIER = com.pickleball.screensaver;
 				PRODUCT_NAME = PickleballScreensaver;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
 				WRAPPER_EXTENSION = saver;
 			};
 			name = Release;
@@ -294,14 +300,13 @@
 		AA66000000000002 /* Build configuration list for PBXNativeTarget "PickleballScreensaver" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				AA99000000000003 /* Debug (target) */,
-				AA99000000000004 /* Release (target) */,
+				AA99000000000003 /* Debug */,
+				AA99000000000004 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = AA88000000000001 /* Project object */;
 }
