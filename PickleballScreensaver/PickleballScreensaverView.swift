@@ -14,9 +14,10 @@ private struct PlayerState {
     var x: CGFloat = 0          // body position across court width
     var stance: CGFloat = 1     // contact-offset side for this swing: +1 = wx+ side, -1 = wx- side
     var swingPhase = false
-    var swingT: CGFloat = 0     // normalized swing time [0, 1]
-    var swingAngle: CGFloat = 0
-    var pivotY: CGFloat = 0.08  // grip height (world y); animated through the low-to-high sweep
+    var swingT: CGFloat = 0     // normalized swing time [0, 1+recovery]
+    var swingAngle: CGFloat = 0 // rad from the horizontal contact pose: - = wound back/down, + = finish
+    var faceDZ: CGFloat = 0     // paddle face-center depth offset from the body (world z)
+    var faceY: CGFloat = 0.08   // paddle face-center height (world y); default must match restFaceY
     var contactY: CGFloat = 0.12 // predicted ball height at contact — face center meets it there
     var armed = true            // ready to start a new backswing
 }
@@ -73,12 +74,20 @@ class PickleballScreensaverView: ScreenSaverView {
     private let reach:     CGFloat = 0.18     // paddle contact offset from body (1.8 ft)
     private let hitWindow: CGFloat = 0.45     // max |ball.x - contact point| for a clean hit
 
-    // Swing timing — low-to-high arc with ball contact 3/4 of the way through.
+    // Swing shape — the paddle sweeps back and down into the windup, then makes
+    // one fluid low-to-high forward stroke. Ball contact lands at the exact
+    // midpoint of that stroke with the face horizontal and the ball on the face
+    // center; the finish is forward and up, then the paddle settles back to ready.
     // Angles are relative to the horizontal contact pose (0 = face at the net).
-    private let swingDuration:  CGFloat = 0.45   // seconds
-    private let contactFrac:    CGFloat = 0.75   // fraction of swing at which contact occurs
+    private let swingDuration:  CGFloat = 0.60   // seconds, windup through finish
+    private let backswingFrac:  CGFloat = 0.45   // fraction of the swing spent going back and down
+    private var contactFrac: CGFloat { backswingFrac + (1 - backswingFrac) / 2 }
+    private let recoveryFrac:   CGFloat = 0.50   // extra fraction to settle back to ready after the finish
     private let backswingAngle: CGFloat = -1.6   // rad, head hanging low behind the body
     private let followAngle:    CGFloat = 0.8    // rad, high finish past the net
+    private let swingLen:       CGFloat = 0.075  // stroke depth each side of contact (≈3.3 ft)
+    private let swingDrop:      CGFloat = 0.13   // how far below contact height the stroke bottoms out
+    private let restFaceY:      CGFloat = 0.08   // face-center height at the ready position
 
     // Colors (matched to reference photo)
     private let greenCourt = CGColor(red: 0.30, green: 0.53, blue: 0.40, alpha: 1)
@@ -236,8 +245,8 @@ class PickleballScreensaverView: ScreenSaverView {
         if faultTimer > 0 {
             faultTimer -= dt
             // Let an in-progress swing finish (reads as a natural whiff)
-            updateSwing(&leftPlayer, dt: dt)
-            updateSwing(&rightPlayer, dt: dt)
+            updateSwing(&leftPlayer,  side:  1, dt: dt)
+            updateSwing(&rightPlayer, side: -1, dt: dt)
             if faultTimer <= 0 { resetRally(leftServes: Bool.random()) }
             setNeedsDisplay(bounds)
             return
@@ -265,8 +274,8 @@ class PickleballScreensaverView: ScreenSaverView {
         updatePlayer(&leftPlayer,  playerZ: leftPlayerZ,  side:  1, approaching: bVel.z < 0, dt: dt)
         updatePlayer(&rightPlayer, playerZ: rightPlayerZ, side: -1, approaching: bVel.z > 0, dt: dt)
 
-        updateSwing(&leftPlayer,  dt: dt)
-        updateSwing(&rightPlayer, dt: dt)
+        updateSwing(&leftPlayer,  side:  1, dt: dt)
+        updateSwing(&rightPlayer, side: -1, dt: dt)
 
         // Net clearance safety check
         if (prevZ - 0.5) * (ball.z - 0.5) < 0 {
@@ -343,8 +352,8 @@ class PickleballScreensaverView: ScreenSaverView {
         bVel.y = vy0
         bVel.z = dir * zSpeed
         bVel.x = CGFloat.random(in: -0.18...0.18)
-        // The windup normally began 0.75 of a swing ago; if it didn't (edge case),
-        // snap to the contact pose so the follow-through always plays from impact.
+        // The windup normally began contactFrac of a swing ago; if it didn't
+        // (edge case), snap to the contact pose so the follow-through plays from impact.
         player.contactY = max(0.03, ball.y)   // face center meets the ball exactly here
         if !player.swingPhase || player.swingT < contactFrac {
             player.swingPhase = true
@@ -364,7 +373,7 @@ class PickleballScreensaverView: ScreenSaverView {
 
         guard approaching else { p.armed = true; return }
 
-        // Start the backswing so contact lands 3/4 of the way through the swing
+        // Start the backswing so contact lands at the midpoint of the forward sweep
         let tta = (playerZ - ball.z) / bVel.z   // time to arrival, seconds
         guard tta > 0 else { return }
         if p.armed && tta <= contactFrac * swingDuration {
@@ -389,23 +398,49 @@ class PickleballScreensaverView: ScreenSaverView {
         p.x + (p.swingPhase ? p.stance : side * 0.7) * reach
     }
 
-    private func updateSwing(_ p: inout PlayerState, dt: CGFloat) {
+    // Advance the swing pose. The paddle face center traces the stroke path:
+    // ready → back-and-down windup → one fluid low-to-high sweep whose midpoint
+    // is ball contact (face horizontal, ball on the face center) → high forward
+    // finish → settle back to ready. `side` is the direction of the net in
+    // world z for this player (+1 left player, -1 right player).
+    private func updateSwing(_ p: inout PlayerState, side: CGFloat, dt: CGFloat) {
         guard p.swingPhase else { return }
         p.swingT += dt / swingDuration
-        let t = min(p.swingT, 1)
-        if t < contactFrac {
-            // Backswing: accelerate from low-back ready into contact (angle 0 at contact),
-            // grip rising from low toward the predicted contact height
-            let u = t / contactFrac
-            p.swingAngle = backswingAngle * (1 - u * u)
-            p.pivotY = 0.03 + (p.contactY - 0.03) * u
+        let yLow  = max(0.03, p.contactY - swingDrop)
+        let yHigh = p.contactY + (p.contactY - yLow)   // symmetric: contact at the sweep midpoint
+        let t = p.swingT
+        if t < backswingFrac {
+            // Windup: paddle drifts back (away from the net) and down
+            let e = smoothstep(t / backswingFrac)
+            p.faceDZ = -side * swingLen * e
+            p.faceY  = restFaceY + (yLow - restFaceY) * e
+            p.swingAngle = backswingAngle * e
+        } else if t < 1 {
+            // Forward stroke: one continuous low-back → high-forward sweep,
+            // fastest at the middle where the ball is struck. The angle is
+            // interpolated piecewise so the face is exactly horizontal at the
+            // midpoint despite the asymmetric windup/finish angles.
+            let e = smoothstep((t - backswingFrac) / (1 - backswingFrac))
+            p.faceDZ = side * swingLen * (2 * e - 1)
+            p.faceY  = yLow + (yHigh - yLow) * e
+            p.swingAngle = e < 0.5 ? backswingAngle * (1 - 2 * e)
+                                   : followAngle * (2 * e - 1)
+        } else if t < 1 + recoveryFrac {
+            // Recovery: ease from the high finish back to the ready position
+            let e = smoothstep((t - 1) / recoveryFrac)
+            p.faceDZ = side * swingLen * (1 - e)
+            p.faceY  = yHigh + (restFaceY - yHigh) * e
+            p.swingAngle = followAngle * (1 - e)
         } else {
-            // Follow-through: decelerate up and forward past the contact height
-            let u = (t - contactFrac) / (1 - contactFrac)
-            p.swingAngle = followAngle * (1 - (1 - u) * (1 - u))
-            p.pivotY = p.contactY + 0.12 * u
+            p.swingPhase = false
+            p.swingT = 0; p.swingAngle = 0; p.faceDZ = 0; p.faceY = restFaceY
         }
-        if p.swingT >= 1 { p.swingPhase = false; p.swingAngle = 0; p.swingT = 0; p.pivotY = 0.08 }
+    }
+
+    // Ease curve: gentle start and finish, peak velocity mid-segment
+    private func smoothstep(_ x: CGFloat) -> CGFloat {
+        let c = max(0, min(1, x))
+        return c * c * (3 - 2 * c)
     }
 
     private func moveVal(_ v: CGFloat, toward t: CGFloat, speed: CGFloat, lo: CGFloat, hi: CGFloat) -> CGFloat {
@@ -650,21 +685,24 @@ class PickleballScreensaverView: ScreenSaverView {
         let handleLen: CGFloat = 58 * s
         let handleW:   CGFloat = 14 * s
 
-        // Anchor at the CONTACT POINT (grip height, where the face center should meet
-        // the ball), then back the grip pivot off by the face-center offset. At the
-        // contact pose the face is horizontal, so at that instant the face center
-        // lands exactly on the anchor — i.e. on the ball.
-        let anchor = proj(wx, wz, state.pivotY)
+        // The face center rides the stroke path (back-and-down, low-to-high,
+        // finish, recover); the grip pivot hangs off it along the paddle axis.
+        // At contact the face is horizontal and the face center lands exactly
+        // on the ball; at every other pose the same offset keeps the paddle
+        // rotating rigidly about the grip.
+        let face = proj(wx, wz + state.faceDZ, state.faceY)
         let faceCenterPx = faceH * 0.52
-        let pivot = CGPoint(x: anchor.x - side * faceCenterPx, y: anchor.y)
+        // Rest pose is HORIZONTAL: face points at the net, handle toward the body
+        // (-pi/2 rotates the upright sprite to point right for the left player;
+        // mirrored for the right player). The swing angle sweeps the head from
+        // hanging low-behind, through horizontal contact, to a high finish.
+        let phi = side * (state.swingAngle - .pi / 2)
+        let pivot = CGPoint(x: face.x + faceCenterPx * sin(phi),
+                            y: face.y - faceCenterPx * cos(phi))
 
         ctx.saveGState()
         ctx.translateBy(x: pivot.x, y: pivot.y)
-        // Rest pose is HORIZONTAL: face points at the net, handle toward the body
-        // (-pi/2 rotates the upright sprite to point right for the left player;
-        // mirrored for the right player). The swing angle sweeps the head around
-        // the grip from hanging low-behind, through horizontal contact, to a high finish.
-        ctx.rotate(by: side * (state.swingAngle - .pi / 2))
+        ctx.rotate(by: phi)
 
         // Sprite is authored upright: handle hangs DOWN from grip pivot, face extends UP
         let handleRect = CGRect(x: -handleW / 2, y: -handleLen, width: handleW, height: handleLen)
