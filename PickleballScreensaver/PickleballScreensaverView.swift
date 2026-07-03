@@ -16,8 +16,21 @@ private struct PlayerState {
     var swingPhase = false
     var swingT: CGFloat = 0     // normalized swing time [0, 1]
     var swingAngle: CGFloat = 0
-    var pivotLift: CGFloat = 0  // extra grip height during the low-to-high sweep
+    var pivotY: CGFloat = 0.08  // grip height (world y); animated through the low-to-high sweep
+    var contactY: CGFloat = 0.12 // predicted ball height at contact — face center meets it there
     var armed = true            // ready to start a new backswing
+}
+
+// 3D vector in feet: l = along court length (0 at net), w = across width, y = up
+private struct F3 {
+    var l: CGFloat, w: CGFloat, y: CGFloat
+    static func - (a: F3, b: F3) -> F3 { F3(l: a.l - b.l, w: a.w - b.w, y: a.y - b.y) }
+    func dot(_ o: F3) -> CGFloat { l * o.l + w * o.w + y * o.y }
+    func cross(_ o: F3) -> F3 {
+        F3(l: w * o.y - y * o.w, w: y * o.l - l * o.y, y: l * o.w - w * o.l)
+    }
+    var length: CGFloat { sqrt(dot(self)) }
+    var normalized: F3 { let m = length; return F3(l: l / m, w: w / m, y: y / m) }
 }
 
 // MARK: - Screensaver
@@ -48,23 +61,24 @@ class PickleballScreensaverView: ScreenSaverView {
     private let leftPlayerZ:  CGFloat = 0.04
     private let rightPlayerZ: CGFloat = 0.96
 
-    // Camera — side view from beyond the near sideline at midcourt, 6 ft eye height
+    // Camera — 10 ft behind the near-left court corner (on the center-corner diagonal,
+    // extended), looking down 45° at the court center
     private let ftPerX: CGFloat = 10.0    // feet per world-x unit (half court width)
     private let ftPerZ: CGFloat = 44.0    // feet per world-z unit (court length)
     private let ftPerY: CGFloat = 9.375   // feet per world-y unit (netHeight 0.32 = 3 ft)
-    private let eyeHeightFt: CGFloat = 6.0
-    private let camDist:     CGFloat = 40.0   // ft from court centerline (30 ft to near sideline)
-    private let horizonFrac: CGFloat = 0.58   // screen y of eye level (fraction of height)
+    private let camPitch:    CGFloat = .pi / 4   // downward tilt from horizontal
+    private let camBehindFt: CGFloat = 10.0      // horizontal distance beyond the corner
 
     // Players (invisible bodies holding the paddles; both right-handed)
     private let reach:     CGFloat = 0.18     // paddle contact offset from body (1.8 ft)
     private let hitWindow: CGFloat = 0.45     // max |ball.x - contact point| for a clean hit
 
-    // Swing timing — low-to-high arc with ball contact 3/4 of the way through
+    // Swing timing — low-to-high arc with ball contact 3/4 of the way through.
+    // Angles are relative to the horizontal contact pose (0 = face at the net).
     private let swingDuration:  CGFloat = 0.45   // seconds
     private let contactFrac:    CGFloat = 0.75   // fraction of swing at which contact occurs
-    private let backswingAngle: CGFloat = -1.1   // rad, paddle tipped low behind the body
-    private let followAngle:    CGFloat = 0.8    // rad, high finish toward the net
+    private let backswingAngle: CGFloat = -1.6   // rad, head hanging low behind the body
+    private let followAngle:    CGFloat = 0.8    // rad, high finish past the net
 
     // Colors (matched to reference photo)
     private let greenCourt = CGColor(red: 0.30, green: 0.53, blue: 0.40, alpha: 1)
@@ -122,27 +136,59 @@ class PickleballScreensaverView: ScreenSaverView {
         }
     }
 
-    // MARK: - Projection (side-on pinhole camera at midcourt, AppKit Y-up)
-    // Level optical axis with a shifted principal point (horizonFrac), so straight
-    // world lines stay straight on screen — no rotation matrix needed.
+    // MARK: - Projection (look-at pinhole camera behind the near-left corner, AppKit Y-up)
 
-    // Derived from bounds so the whole court always fits horizontally: the widest
-    // content is the apron corner wx = -1.15 (28.5 ft deep) at wz = 1.05 (24.2 ft out).
-    private var focal: CGFloat {
-        (bounds.width / 2) * (camDist - 11.5) / 24.2 * 0.95
+    // Camera position and orthonormal basis (right, up, forward), all in feet
+    private lazy var camPos: F3 = {
+        let corner = F3(l: -ftPerZ / 2, w: -ftPerX, y: 0)
+        let horiz = corner.length + camBehindFt          // horizontal distance to court center
+        let dir = corner.normalized                      // center -> corner, on the ground
+        return F3(l: dir.l * horiz, w: dir.w * horiz, y: horiz * tan(camPitch))
+    }()
+    private lazy var camF: F3 = (F3(l: 0, w: 0, y: 0) - camPos).normalized  // at court center
+    private lazy var camR: F3 = camF.cross(F3(l: 0, w: 0, y: 1)).normalized
+    private lazy var camU: F3 = camR.cross(camF)
+
+    private func toFeet(_ wx: CGFloat, _ wz: CGFloat, _ wy: CGFloat) -> F3 {
+        F3(l: (wz - 0.5) * ftPerZ, w: wx * ftPerX, y: wy * ftPerY)
     }
 
-    private var horizonY: CGFloat { bounds.height * horizonFrac }
+    // Normalized image-plane coords (x, y) and camera depth for a world point
+    private func unitProj(_ wx: CGFloat, _ wz: CGFloat, _ wy: CGFloat) -> (x: CGFloat, y: CGFloat, depth: CGFloat) {
+        let p = toFeet(wx, wz, wy) - camPos
+        let d = p.dot(camF)
+        return (p.dot(camR) / d, p.dot(camU) / d, d)
+    }
 
-    // Pixels per foot for sprite sizing at a given court-width position
-    private func ppf(atWx wx: CGFloat) -> CGFloat { focal / (camDist + wx * ftPerX) }
+    // Focal length and principal point fitted so the court apron fills the frame,
+    // leaving the bottom of the screen clear for the clock/calendar overlays.
+    private var fitCache: (size: CGSize, focal: CGFloat, xOff: CGFloat, yOff: CGFloat)?
+    private var fit: (focal: CGFloat, xOff: CGFloat, yOff: CGFloat) {
+        if let c = fitCache, c.size == bounds.size { return (c.focal, c.xOff, c.yOff) }
+        var minX = CGFloat.infinity, maxX = -CGFloat.infinity
+        var minY = CGFloat.infinity, maxY = -CGFloat.infinity
+        for (wx, wz) in [(-1.15, -0.05), (1.15, -0.05), (1.15, 1.05), (-1.15, 1.05)] {
+            let u = unitProj(CGFloat(wx), CGFloat(wz), 0)
+            minX = min(minX, u.x); maxX = max(maxX, u.x)
+            minY = min(minY, u.y); maxY = max(maxY, u.y)
+        }
+        let W = bounds.width, H = bounds.height
+        let focal = min(W * 0.94 / (maxX - minX), H * 0.72 / (maxY - minY))
+        let xOff = W / 2 - focal * (minX + maxX) / 2
+        let yOff = H * 0.60 - focal * (minY + maxY) / 2   // content centered above the overlays
+        fitCache = (bounds.size, focal, xOff, yOff)
+        return (focal, xOff, yOff)
+    }
+
+    // Pixels per foot for sprite sizing at a given court position (at floor level)
+    private func ppf(atWx wx: CGFloat, atWz wz: CGFloat) -> CGFloat {
+        fit.focal / unitProj(wx, wz, 0).depth
+    }
 
     private func proj(_ wx: CGFloat, _ wz: CGFloat, _ wy: CGFloat) -> CGPoint {
-        let cx = (wz - 0.5) * ftPerZ         // court length -> screen x
-        let cy = wy * ftPerY - eyeHeightFt   // height relative to eye
-        let cz = camDist + wx * ftPerX       // court width -> camera depth
-        return CGPoint(x: bounds.width / 2 + focal * cx / cz,
-                       y: horizonY + focal * cy / cz)
+        let u = unitProj(wx, wz, wy)
+        let f = fit
+        return CGPoint(x: f.xOff + f.focal * u.x, y: f.yOff + f.focal * u.y)
     }
 
     private func proj(_ v: Vec3) -> CGPoint { proj(v.x, v.z, v.y) }
@@ -168,9 +214,11 @@ class PickleballScreensaverView: ScreenSaverView {
         // Server plays a follow-through from the contact pose
         if leftServes {
             leftPlayer.x = ball.x - reach
+            leftPlayer.contactY = max(0.03, ball.y)
             leftPlayer.swingPhase = true; leftPlayer.swingT = contactFrac
         } else {
             rightPlayer.x = ball.x + reach
+            rightPlayer.contactY = max(0.03, ball.y)
             rightPlayer.swingPhase = true; rightPlayer.swingT = contactFrac
         }
         trailPoints.removeAll()
@@ -270,6 +318,23 @@ class PickleballScreensaverView: ScreenSaverView {
         return max(-1, min(1, px))
     }
 
+    // Simulate the ball's height at depth targetZ (gravity + floor bounces)
+    private func predictY(toZ targetZ: CGFloat) -> CGFloat {
+        guard abs(bVel.z) > 0.0001 else { return ball.y }
+        var t = (targetZ - ball.z) / bVel.z
+        guard t > 0 else { return ball.y }
+        var y = ball.y, vy = bVel.y
+        let step: CGFloat = 1.0 / 120.0
+        while t > 0 {
+            let dt = min(step, t)
+            y += vy * dt
+            vy += gravity * dt
+            if y < 0 { y = 0; vy = abs(vy) * bounceDamp }
+            t -= dt
+        }
+        return y
+    }
+
     private func returnBall(fromZ: CGFloat, goingFar: Bool, player: inout PlayerState) {
         ball.z = fromZ
         ball.y = max(ball.y, 0.02)
@@ -280,6 +345,7 @@ class PickleballScreensaverView: ScreenSaverView {
         bVel.x = CGFloat.random(in: -0.18...0.18)
         // The windup normally began 0.75 of a swing ago; if it didn't (edge case),
         // snap to the contact pose so the follow-through always plays from impact.
+        player.contactY = max(0.03, ball.y)   // face center meets the ball exactly here
         if !player.swingPhase || player.swingT < contactFrac {
             player.swingPhase = true
             player.swingT = contactFrac
@@ -304,6 +370,8 @@ class PickleballScreensaverView: ScreenSaverView {
         if p.armed && tta <= contactFrac * swingDuration {
             // Forehand or backhand: which side of the body will the ball arrive on?
             p.stance = (predictX(toZ: playerZ) - p.x >= 0) ? 1 : -1
+            // Aim the swing so the face center arrives at the ball's height
+            p.contactY = min(0.55, max(0.03, predictY(toZ: playerZ)))
             p.swingPhase = true
             p.swingT = max(0, contactFrac - tta / swingDuration)  // frame-quantization catch-up
             p.armed = false
@@ -326,17 +394,18 @@ class PickleballScreensaverView: ScreenSaverView {
         p.swingT += dt / swingDuration
         let t = min(p.swingT, 1)
         if t < contactFrac {
-            // Backswing: accelerate from low-back ready into contact (angle 0 at contact)
+            // Backswing: accelerate from low-back ready into contact (angle 0 at contact),
+            // grip rising from low toward the predicted contact height
             let u = t / contactFrac
             p.swingAngle = backswingAngle * (1 - u * u)
-            p.pivotLift = 0.05 * u
+            p.pivotY = 0.03 + (p.contactY - 0.03) * u
         } else {
-            // Follow-through: decelerate up and forward
+            // Follow-through: decelerate up and forward past the contact height
             let u = (t - contactFrac) / (1 - contactFrac)
             p.swingAngle = followAngle * (1 - (1 - u) * (1 - u))
-            p.pivotLift = 0.05 + 0.10 * u
+            p.pivotY = p.contactY + 0.12 * u
         }
-        if p.swingT >= 1 { p.swingPhase = false; p.swingAngle = 0; p.swingT = 0; p.pivotLift = 0 }
+        if p.swingT >= 1 { p.swingPhase = false; p.swingAngle = 0; p.swingT = 0; p.pivotY = 0.08 }
     }
 
     private func moveVal(_ v: CGFloat, toward t: CGFloat, speed: CGFloat, lo: CGFloat, hi: CGFloat) -> CGFloat {
@@ -351,21 +420,22 @@ class PickleballScreensaverView: ScreenSaverView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         drawBackground(ctx: ctx, rect: rect)
         drawCourt(ctx: ctx)
-        // The net plane contains the camera, so it can never occlude (or be occluded
-        // by) anything off its plane — safe to draw before all sprites.
-        drawNet(ctx: ctx)
         drawBallShadow(ctx: ctx)
         drawTrail(ctx: ctx)
 
-        // Painter's sort: court width is the camera depth axis; draw farthest (largest wx) first
-        let sprites: [(wx: CGFloat, draw: () -> Void)] = [
-            (ball.x, { self.drawBall(ctx: ctx) }),
-            (paddleWx(leftPlayer, side: 1),
+        // Painter's algorithm: sprites beyond the net plane (wz > 0.5) render first,
+        // then the net, then near-side sprites; each group sorted farthest-first.
+        let sprites: [(wz: CGFloat, depth: CGFloat, draw: () -> Void)] = [
+            (ball.z, unitProj(ball.x, ball.z, ball.y).depth,
+             { self.drawBall(ctx: ctx) }),
+            (leftPlayerZ, unitProj(paddleWx(leftPlayer, side: 1), leftPlayerZ, 0.1).depth,
              { self.drawPaddle(ctx: ctx, state: self.leftPlayer, wz: self.leftPlayerZ, side: 1) }),
-            (paddleWx(rightPlayer, side: -1),
+            (rightPlayerZ, unitProj(paddleWx(rightPlayer, side: -1), rightPlayerZ, 0.1).depth,
              { self.drawPaddle(ctx: ctx, state: self.rightPlayer, wz: self.rightPlayerZ, side: -1) }),
         ]
-        for sprite in sprites.sorted(by: { $0.wx > $1.wx }) { sprite.draw() }
+        for s in sprites.filter({ $0.wz > 0.5 }).sorted(by: { $0.depth > $1.depth }) { s.draw() }
+        drawNet(ctx: ctx)
+        for s in sprites.filter({ $0.wz <= 0.5 }).sorted(by: { $0.depth > $1.depth }) { s.draw() }
 
         drawClock(ctx: ctx, rect: rect)
         drawCalendar(ctx: ctx, rect: rect)
@@ -383,8 +453,8 @@ class PickleballScreensaverView: ScreenSaverView {
         if let sp = CGColorSpace(name: CGColorSpace.sRGB),
            let gr = CGGradient(colorsSpace: sp, colors: colors, locations: locs) {
             ctx.drawRadialGradient(gr,
-                startCenter: CGPoint(x: rect.midX, y: horizonY), startRadius: 0,
-                endCenter:   CGPoint(x: rect.midX, y: horizonY),
+                startCenter: CGPoint(x: rect.midX, y: rect.height * 0.60), startRadius: 0,
+                endCenter:   CGPoint(x: rect.midX, y: rect.height * 0.60),
                 endRadius: max(rect.width, rect.height) * 0.7, options: [])
         }
     }
@@ -449,38 +519,46 @@ class PickleballScreensaverView: ScreenSaverView {
         line(ctx, from: proj(0, kitchenFarZ, 0),  to: proj(0, 1, 0))
     }
 
-    // MARK: - Net (edge-on vertical sliver at z = 0.5, screen center)
+    // MARK: - Net (vertical band at z = 0.5, seen at an angle from the corner camera)
 
     private func drawNet(ctx: CGContext) {
         let nh = netHeight
-        // All net points share screen x = W/2 (the net plane contains the camera);
-        // the visible extent runs from the near-sideline base up to the far-sideline top.
-        let baseNear = proj(-1, 0.5, 0)
-        let topNear  = proj(-1, 0.5, nh)
-        let topFar   = proj(1, 0.5, nh)
+        let bl = proj(-1, 0.5, 0); let br = proj(1, 0.5, 0)
+        let tl = proj(-1, 0.5, nh); let tr = proj(1, 0.5, nh)
 
-        // Far post behind the mesh
-        drawPost(ctx, atX: 1)
+        // Mesh body
+        fillQuad(ctx, bl, br, tr, tl, color: CGColor(red: 0.09, green: 0.10, blue: 0.11, alpha: 0.50))
 
-        // Mesh body — thin vertical band
-        let bandHalf = max(1.0, 0.06 * ppf(atWx: 0))
-        ctx.setFillColor(CGColor(red: 0.09, green: 0.10, blue: 0.11, alpha: 0.80))
-        ctx.fill(CGRect(x: baseNear.x - bandHalf, y: baseNear.y,
-                        width: bandHalf * 2, height: topFar.y - baseNear.y))
+        // Vertical strands
+        ctx.setStrokeColor(CGColor(red: 0.16, green: 0.17, blue: 0.18, alpha: 0.65))
+        ctx.setLineWidth(0.8)
+        let vSteps = 55
+        for i in 0...vSteps {
+            let wx = -1 + 2 * CGFloat(i) / CGFloat(vSteps)
+            line(ctx, from: proj(wx, 0.5, 0), to: proj(wx, 0.5, nh))
+        }
+        // Horizontal strands
+        let hSteps = 10
+        for i in 1..<hSteps {
+            let wy = nh * CGFloat(i) / CGFloat(hSteps)
+            line(ctx, from: proj(-1, 0.5, wy), to: proj(1, 0.5, wy))
+        }
 
-        // White top tape seen edge-on (near-sideline top to far-sideline top)
+        // White top tape
         ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.95))
-        ctx.setLineWidth(4.0)
-        line(ctx, from: topNear, to: topFar)
+        ctx.setLineWidth(5.0)
+        line(ctx, from: tl, to: tr)
 
-        // Near post in front
+        // Posts: center + sides
+        drawPost(ctx, atX: 0)
         drawPost(ctx, atX: -1)
+        drawPost(ctx, atX: 1)
     }
 
     private func drawPost(_ ctx: CGContext, atX wx: CGFloat) {
         let base = proj(wx, 0.5, 0)
         let top  = proj(wx, 0.5, netHeight)
-        let w: CGFloat = 0.25 * ppf(atWx: wx)
+        let w: CGFloat = 0.25 * ppf(atWx: wx, atWz: 0.5)
         ctx.setStrokeColor(CGColor(red: 0.08, green: 0.09, blue: 0.10, alpha: 1))
         ctx.setLineWidth(w)
         ctx.setLineCap(.round)
@@ -493,7 +571,7 @@ class PickleballScreensaverView: ScreenSaverView {
     private func drawBallShadow(ctx: CGContext) {
         let sp = proj(ball.x, ball.z, 0)
         let fade = max(0, 1 - ball.y / 0.6)
-        let s = ppf(atWx: ball.x)
+        let s = ppf(atWx: ball.x, atWz: ball.z)
         let rw: CGFloat = 0.55 * s * fade
         let rh: CGFloat = rw * 0.30
         // Soft penumbra
@@ -510,7 +588,7 @@ class PickleballScreensaverView: ScreenSaverView {
         let count = trailPoints.count
         for (i, t) in trailPoints.enumerated() {
             let frac = CGFloat(i) / CGFloat(count)
-            let r = 0.40 * ppf(atWx: t.x) * frac
+            let r = 0.40 * ppf(atWx: t.x, atWz: t.z) * frac
             let p = proj(t)
             ctx.setFillColor(CGColor(red: 1, green: 0.85, blue: 0.1, alpha: frac * 0.28))
             ctx.fillEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
@@ -521,7 +599,7 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func drawBall(ctx: CGContext) {
         let p = proj(ball)
-        let s = ppf(atWx: ball.x)
+        let s = ppf(atWx: ball.x, atWz: ball.z)
         let r: CGFloat = 0.60 * s
         let rim: CGFloat = 0.05 * s
 
@@ -566,22 +644,29 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func drawPaddle(ctx: CGContext, state: PlayerState, wz: CGFloat, side: CGFloat) {
         let wx = paddleWx(state, side: side)
-        let s = ppf(atWx: wx) / 32.0   // art was authored at ~32 px/ft
-        // Grip pivot rises through the swing (low-to-high sweep)
-        let pivot = proj(wx, wz, 0.06 + state.pivotLift)
-
+        let s = ppf(atWx: wx, atWz: wz) / 32.0   // art was authored at ~32 px/ft
         let faceW: CGFloat = 82 * s
         let faceH: CGFloat = 108 * s
         let handleLen: CGFloat = 58 * s
         let handleW:   CGFloat = 14 * s
 
+        // Anchor at the CONTACT POINT (grip height, where the face center should meet
+        // the ball), then back the grip pivot off by the face-center offset. At the
+        // contact pose the face is horizontal, so at that instant the face center
+        // lands exactly on the anchor — i.e. on the ball.
+        let anchor = proj(wx, wz, state.pivotY)
+        let faceCenterPx = faceH * 0.52
+        let pivot = CGPoint(x: anchor.x - side * faceCenterPx, y: anchor.y)
+
         ctx.saveGState()
         ctx.translateBy(x: pivot.x, y: pivot.y)
-        // Negate for the left player so the head tips back on the windup and
-        // toward the net on the follow-through for both sides
-        ctx.rotate(by: -side * state.swingAngle)
+        // Rest pose is HORIZONTAL: face points at the net, handle toward the body
+        // (-pi/2 rotates the upright sprite to point right for the left player;
+        // mirrored for the right player). The swing angle sweeps the head around
+        // the grip from hanging low-behind, through horizontal contact, to a high finish.
+        ctx.rotate(by: side * (state.swingAngle - .pi / 2))
 
-        // Handle hangs DOWN from grip pivot; face extends UP
+        // Sprite is authored upright: handle hangs DOWN from grip pivot, face extends UP
         let handleRect = CGRect(x: -handleW / 2, y: -handleLen, width: handleW, height: handleLen)
         let faceRect   = CGRect(x: -faceW / 2,   y: 0,          width: faceW,   height: faceH)
         let faceCenter = CGPoint(x: 0, y: faceH * 0.52)
@@ -721,7 +806,8 @@ class PickleballScreensaverView: ScreenSaverView {
             .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.55)
         ]
         let headerStr = NSAttributedString(string: "TODAY", attributes: headerAttrs)
-        var curY = rect.height * 0.28
+        // Cap the block below the court's near apron edge (~0.24 H with the 45° camera)
+        var curY = rect.height * 0.18
         headerStr.draw(at: NSPoint(x: x, y: curY))
         curY -= headerSize * 0.4
 
