@@ -10,12 +10,14 @@ private struct Vec3 {
     var z: CGFloat   // depth: 0 = near baseline (bottom of screen), 1 = far baseline (top)
 }
 
-private struct PaddleState {
-    var x: CGFloat = 0          // position across court width
-    var swingAngle: CGFloat = 0
+private struct PlayerState {
+    var x: CGFloat = 0          // body position across court width
+    var stance: CGFloat = 1     // contact-offset side for this swing: +1 = wx+ side, -1 = wx- side
     var swingPhase = false
-    var swingT: CGFloat = 0
-    var swingDir: CGFloat = 1   // +1 = forehand (right→left), -1 = backhand (left→right)
+    var swingT: CGFloat = 0     // normalized swing time [0, 1]
+    var swingAngle: CGFloat = 0
+    var pivotLift: CGFloat = 0  // extra grip height during the low-to-high sweep
+    var armed = true            // ready to start a new backswing
 }
 
 // MARK: - Screensaver
@@ -27,9 +29,11 @@ class PickleballScreensaverView: ScreenSaverView {
     private var bVel = Vec3(x: 0, y: 0, z: 0.55)
     private var trailPoints: [Vec3] = []
 
-    // Paddles — near (z≈0, bottom, large) and far (z≈1, top, small)
-    private var nearPaddle = PaddleState()
-    private var farPaddle  = PaddleState()
+    // Invisible players — left (z≈0, screen left) and right (z≈1, screen right).
+    // Both are right-handed: the left player faces +z so their forehand side is +x;
+    // the right player faces -z so theirs is -x. `side` (+1 left / -1 right) encodes both.
+    private var leftPlayer  = PlayerState()
+    private var rightPlayer = PlayerState()
 
     // Physics
     private let gravity:    CGFloat = -2.6
@@ -41,15 +45,26 @@ class PickleballScreensaverView: ScreenSaverView {
     // Court depth landmarks (normalised over 44 ft court length)
     private let kitchenNearZ: CGFloat = 15.0 / 44.0   // ≈ 0.341
     private let kitchenFarZ:  CGFloat = 29.0 / 44.0   // ≈ 0.659
-    private let nearPaddleZ:  CGFloat = 0.04
-    private let farPaddleZ:   CGFloat = 0.96
+    private let leftPlayerZ:  CGFloat = 0.04
+    private let rightPlayerZ: CGFloat = 0.96
 
-    // Projection
-    private let farScale:    CGFloat = 0.40   // perspective scale at far baseline
-    private let nearFrac:    CGFloat = 0.14   // near baseline y / H (bottom)
-    private let farFrac:     CGFloat = 0.80   // far baseline y / H (top)
-    private let halfFrac:    CGFloat = 0.46   // half court width / W (at near baseline)
-    private let heightScale: CGFloat = 360    // px per world Y unit (at near scale)
+    // Camera — side view from beyond the near sideline at midcourt, 6 ft eye height
+    private let ftPerX: CGFloat = 10.0    // feet per world-x unit (half court width)
+    private let ftPerZ: CGFloat = 44.0    // feet per world-z unit (court length)
+    private let ftPerY: CGFloat = 9.375   // feet per world-y unit (netHeight 0.32 = 3 ft)
+    private let eyeHeightFt: CGFloat = 6.0
+    private let camDist:     CGFloat = 40.0   // ft from court centerline (30 ft to near sideline)
+    private let horizonFrac: CGFloat = 0.58   // screen y of eye level (fraction of height)
+
+    // Players (invisible bodies holding the paddles; both right-handed)
+    private let reach:     CGFloat = 0.18     // paddle contact offset from body (1.8 ft)
+    private let hitWindow: CGFloat = 0.45     // max |ball.x - contact point| for a clean hit
+
+    // Swing timing — low-to-high arc with ball contact 3/4 of the way through
+    private let swingDuration:  CGFloat = 0.45   // seconds
+    private let contactFrac:    CGFloat = 0.75   // fraction of swing at which contact occurs
+    private let backswingAngle: CGFloat = -1.1   // rad, paddle tipped low behind the body
+    private let followAngle:    CGFloat = 0.8    // rad, high finish toward the net
 
     // Colors (matched to reference photo)
     private let greenCourt = CGColor(red: 0.30, green: 0.53, blue: 0.40, alpha: 1)
@@ -83,7 +98,7 @@ class PickleballScreensaverView: ScreenSaverView {
     private func setup() {
         animationTimeInterval = 1.0 / 60.0
         wantsLayer = true
-        resetRally(nearServes: true)
+        resetRally(leftServes: true)
         fetchTodayEvents()
     }
 
@@ -107,19 +122,27 @@ class PickleballScreensaverView: ScreenSaverView {
         }
     }
 
-    // MARK: - Projection (behind-baseline perspective, AppKit Y-up)
+    // MARK: - Projection (side-on pinhole camera at midcourt, AppKit Y-up)
+    // Level optical axis with a shifted principal point (horizonFrac), so straight
+    // world lines stay straight on screen — no rotation matrix needed.
 
-    private func scale(_ wz: CGFloat) -> CGFloat { 1.0 / (1.0 + (1.0 / farScale - 1.0) * wz) }
+    // Derived from bounds so the whole court always fits horizontally: the widest
+    // content is the apron corner wx = -1.15 (28.5 ft deep) at wz = 1.05 (24.2 ft out).
+    private var focal: CGFloat {
+        (bounds.width / 2) * (camDist - 11.5) / 24.2 * 0.95
+    }
+
+    private var horizonY: CGFloat { bounds.height * horizonFrac }
+
+    // Pixels per foot for sprite sizing at a given court-width position
+    private func ppf(atWx wx: CGFloat) -> CGFloat { focal / (camDist + wx * ftPerX) }
 
     private func proj(_ wx: CGFloat, _ wz: CGFloat, _ wy: CGFloat) -> CGPoint {
-        let W = bounds.width, H = bounds.height
-        let nearY = H * nearFrac
-        let farY  = H * farFrac
-        let s = scale(wz)
-        let halfW = W * halfFrac
-        let sx = W / 2 + wx * halfW * s
-        let sy = nearY + (farY - nearY) * (1 - s) / (1 - farScale) + wy * heightScale * s
-        return CGPoint(x: sx, y: sy)
+        let cx = (wz - 0.5) * ftPerZ         // court length -> screen x
+        let cy = wy * ftPerY - eyeHeightFt   // height relative to eye
+        let cz = camDist + wx * ftPerX       // court width -> camera depth
+        return CGPoint(x: bounds.width / 2 + focal * cx / cz,
+                       y: horizonY + focal * cy / cz)
     }
 
     private func proj(_ v: Vec3) -> CGPoint { proj(v.x, v.z, v.y) }
@@ -134,14 +157,22 @@ class PickleballScreensaverView: ScreenSaverView {
 
     // MARK: - Reset
 
-    private func resetRally(nearServes: Bool) {
-        let startZ = nearServes ? nearPaddleZ : farPaddleZ
-        let dir: CGFloat = nearServes ? 1 : -1
+    private func resetRally(leftServes: Bool) {
+        let startZ = leftServes ? leftPlayerZ : rightPlayerZ
+        let dir: CGFloat = leftServes ? 1 : -1
         ball = Vec3(x: CGFloat.random(in: -0.4...0.4), y: 0.02, z: startZ)
         let vy0 = launchVy(fromZ: startZ, zSpd: zSpeed, margin: netHeight * 0.7)
         bVel = Vec3(x: CGFloat.random(in: -0.1...0.1), y: vy0, z: dir * zSpeed)
-        nearPaddle = PaddleState(x: 0, swingAngle: 0, swingPhase: false, swingT: 0)
-        farPaddle  = PaddleState(x: 0, swingAngle: 0, swingPhase: false, swingT: 0)
+        leftPlayer  = PlayerState()
+        rightPlayer = PlayerState()
+        // Server plays a follow-through from the contact pose
+        if leftServes {
+            leftPlayer.x = ball.x - reach
+            leftPlayer.swingPhase = true; leftPlayer.swingT = contactFrac
+        } else {
+            rightPlayer.x = ball.x + reach
+            rightPlayer.swingPhase = true; rightPlayer.swingT = contactFrac
+        }
         trailPoints.removeAll()
         faultTimer = 0
         ballSpin = 0
@@ -156,7 +187,10 @@ class PickleballScreensaverView: ScreenSaverView {
 
         if faultTimer > 0 {
             faultTimer -= dt
-            if faultTimer <= 0 { resetRally(nearServes: Bool.random()) }
+            // Let an in-progress swing finish (reads as a natural whiff)
+            updateSwing(&leftPlayer, dt: dt)
+            updateSwing(&rightPlayer, dt: dt)
+            if faultTimer <= 0 { resetRally(leftServes: Bool.random()) }
             setNeedsDisplay(bounds)
             return
         }
@@ -179,14 +213,12 @@ class PickleballScreensaverView: ScreenSaverView {
         if ball.x < -1 { ball.x = -1; bVel.x =  abs(bVel.x) }
         if ball.x >  1 { ball.x =  1; bVel.x = -abs(bVel.x) }
 
-        // Predictive paddle positioning: aim for ball's x when it reaches each baseline
-        let predNear = predictX(toZ: nearPaddleZ)
-        let predFar  = predictX(toZ: farPaddleZ)
-        nearPaddle.x = moveVal(nearPaddle.x, toward: predNear, speed: paddleSpeed * dt, lo: -1, hi: 1)
-        farPaddle.x  = moveVal(farPaddle.x,  toward: predFar,  speed: paddleSpeed * dt, lo: -1, hi: 1)
+        // Invisible players run to intercept and wind up their swings
+        updatePlayer(&leftPlayer,  playerZ: leftPlayerZ,  side:  1, approaching: bVel.z < 0, dt: dt)
+        updatePlayer(&rightPlayer, playerZ: rightPlayerZ, side: -1, approaching: bVel.z > 0, dt: dt)
 
-        updateSwing(&nearPaddle, dt: dt)
-        updateSwing(&farPaddle,  dt: dt)
+        updateSwing(&leftPlayer,  dt: dt)
+        updateSwing(&rightPlayer, dt: dt)
 
         // Net clearance safety check
         if (prevZ - 0.5) * (ball.z - 0.5) < 0 {
@@ -195,20 +227,20 @@ class PickleballScreensaverView: ScreenSaverView {
             if yAtNet < netHeight { faultTimer = 1.0 }
         }
 
-        // Hit detection — near paddle (ball arriving at bottom)
-        if bVel.z < 0 && ball.z <= nearPaddleZ {
-            if abs(ball.x - nearPaddle.x) < 0.5 {
-                returnBall(fromZ: nearPaddleZ, goingFar: true, paddle: &nearPaddle)
+        // Hit detection — left player (ball arriving at screen left)
+        if bVel.z < 0 && ball.z <= leftPlayerZ {
+            if abs(ball.x - contactX(leftPlayer, side: 1)) < hitWindow {
+                returnBall(fromZ: leftPlayerZ, goingFar: true, player: &leftPlayer)
                 rallyCount += 1
             } else {
                 faultTimer = 1.0
             }
         }
 
-        // Hit detection — far paddle (ball arriving at top)
-        if bVel.z > 0 && ball.z >= farPaddleZ {
-            if abs(ball.x - farPaddle.x) < 0.5 {
-                returnBall(fromZ: farPaddleZ, goingFar: false, paddle: &farPaddle)
+        // Hit detection — right player (ball arriving at screen right)
+        if bVel.z > 0 && ball.z >= rightPlayerZ {
+            if abs(ball.x - contactX(rightPlayer, side: -1)) < hitWindow {
+                returnBall(fromZ: rightPlayerZ, goingFar: false, player: &rightPlayer)
                 rallyCount += 1
             } else {
                 faultTimer = 1.0
@@ -238,7 +270,7 @@ class PickleballScreensaverView: ScreenSaverView {
         return max(-1, min(1, px))
     }
 
-    private func returnBall(fromZ: CGFloat, goingFar: Bool, paddle: inout PaddleState) {
+    private func returnBall(fromZ: CGFloat, goingFar: Bool, player: inout PlayerState) {
         ball.z = fromZ
         ball.y = max(ball.y, 0.02)
         let dir: CGFloat = goingFar ? 1 : -1
@@ -246,19 +278,65 @@ class PickleballScreensaverView: ScreenSaverView {
         bVel.y = vy0
         bVel.z = dir * zSpeed
         bVel.x = CGFloat.random(in: -0.18...0.18)
-        paddle.swingDir = (ball.x >= paddle.x) ? 1.0 : -1.0
-        paddle.swingPhase = true
-        paddle.swingT = 0
+        // The windup normally began 0.75 of a swing ago; if it didn't (edge case),
+        // snap to the contact pose so the follow-through always plays from impact.
+        if !player.swingPhase || player.swingT < contactFrac {
+            player.swingPhase = true
+            player.swingT = contactFrac
+        }
     }
 
-    private func updateSwing(_ p: inout PaddleState, dt: CGFloat) {
+    // Body movement + swing anticipation for one invisible player.
+    // side: +1 = left player (faces +z), -1 = right player (faces -z).
+    // For right-handed players the forehand side in world-x equals `side`.
+    private func updatePlayer(_ p: inout PlayerState, playerZ: CGFloat, side: CGFloat,
+                              approaching: Bool, dt: CGFloat) {
+        // Run so the forehand contact point meets the predicted ball; drift home otherwise
+        let target = approaching ? predictX(toZ: playerZ) - side * reach : 0
+        let spd = paddleSpeed * dt * (approaching ? 1.0 : 0.6)
+        p.x = moveVal(p.x, toward: target, speed: spd, lo: -1, hi: 1)
+
+        guard approaching else { p.armed = true; return }
+
+        // Start the backswing so contact lands 3/4 of the way through the swing
+        let tta = (playerZ - ball.z) / bVel.z   // time to arrival, seconds
+        guard tta > 0 else { return }
+        if p.armed && tta <= contactFrac * swingDuration {
+            // Forehand or backhand: which side of the body will the ball arrive on?
+            p.stance = (predictX(toZ: playerZ) - p.x >= 0) ? 1 : -1
+            p.swingPhase = true
+            p.swingT = max(0, contactFrac - tta / swingDuration)  // frame-quantization catch-up
+            p.armed = false
+        }
+    }
+
+    // Where this player's paddle meets the ball, given their current stance
+    private func contactX(_ p: PlayerState, side: CGFloat) -> CGFloat {
+        p.x + (p.swingPhase ? p.stance : side) * reach
+    }
+
+    // Where the paddle is drawn: at the contact offset while swinging,
+    // otherwise held ready slightly on the forehand side
+    private func paddleWx(_ p: PlayerState, side: CGFloat) -> CGFloat {
+        p.x + (p.swingPhase ? p.stance : side * 0.7) * reach
+    }
+
+    private func updateSwing(_ p: inout PlayerState, dt: CGFloat) {
         guard p.swingPhase else { return }
-        p.swingT += dt * 3.0
+        p.swingT += dt / swingDuration
         let t = min(p.swingT, 1)
-        let ease = t * t * (3 - 2 * t)   // smoothstep
-        // Sweep from low-back ready (-1.0) through contact (~0) to high follow-through (+0.8)
-        p.swingAngle = p.swingDir * (-1.0 + 1.8 * ease)
-        if p.swingT >= 1 { p.swingPhase = false; p.swingAngle = 0; p.swingT = 0 }
+        if t < contactFrac {
+            // Backswing: accelerate from low-back ready into contact (angle 0 at contact)
+            let u = t / contactFrac
+            p.swingAngle = backswingAngle * (1 - u * u)
+            p.pivotLift = 0.05 * u
+        } else {
+            // Follow-through: decelerate up and forward
+            let u = (t - contactFrac) / (1 - contactFrac)
+            p.swingAngle = followAngle * (1 - (1 - u) * (1 - u))
+            p.pivotLift = 0.05 + 0.10 * u
+        }
+        if p.swingT >= 1 { p.swingPhase = false; p.swingAngle = 0; p.swingT = 0; p.pivotLift = 0 }
     }
 
     private func moveVal(_ v: CGFloat, toward t: CGFloat, speed: CGFloat, lo: CGFloat, hi: CGFloat) -> CGFloat {
@@ -273,12 +351,22 @@ class PickleballScreensaverView: ScreenSaverView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         drawBackground(ctx: ctx, rect: rect)
         drawCourt(ctx: ctx)
-        drawPaddle(ctx: ctx, state: farPaddle, wz: farPaddleZ)    // far paddle behind net
+        // The net plane contains the camera, so it can never occlude (or be occluded
+        // by) anything off its plane — safe to draw before all sprites.
         drawNet(ctx: ctx)
         drawBallShadow(ctx: ctx)
         drawTrail(ctx: ctx)
-        drawBall(ctx: ctx)
-        drawPaddle(ctx: ctx, state: nearPaddle, wz: nearPaddleZ)  // near paddle in front
+
+        // Painter's sort: court width is the camera depth axis; draw farthest (largest wx) first
+        let sprites: [(wx: CGFloat, draw: () -> Void)] = [
+            (ball.x, { self.drawBall(ctx: ctx) }),
+            (paddleWx(leftPlayer, side: 1),
+             { self.drawPaddle(ctx: ctx, state: self.leftPlayer, wz: self.leftPlayerZ, side: 1) }),
+            (paddleWx(rightPlayer, side: -1),
+             { self.drawPaddle(ctx: ctx, state: self.rightPlayer, wz: self.rightPlayerZ, side: -1) }),
+        ]
+        for sprite in sprites.sorted(by: { $0.wx > $1.wx }) { sprite.draw() }
+
         drawClock(ctx: ctx, rect: rect)
         drawCalendar(ctx: ctx, rect: rect)
         drawRallyCounter(ctx: ctx, rect: rect)
@@ -295,8 +383,8 @@ class PickleballScreensaverView: ScreenSaverView {
         if let sp = CGColorSpace(name: CGColorSpace.sRGB),
            let gr = CGGradient(colorsSpace: sp, colors: colors, locations: locs) {
             ctx.drawRadialGradient(gr,
-                startCenter: CGPoint(x: rect.midX, y: rect.height * 0.5), startRadius: 0,
-                endCenter:   CGPoint(x: rect.midX, y: rect.height * 0.5),
+                startCenter: CGPoint(x: rect.midX, y: horizonY), startRadius: 0,
+                endCenter:   CGPoint(x: rect.midX, y: horizonY),
                 endRadius: max(rect.width, rect.height) * 0.7, options: [])
         }
     }
@@ -361,46 +449,38 @@ class PickleballScreensaverView: ScreenSaverView {
         line(ctx, from: proj(0, kitchenFarZ, 0),  to: proj(0, 1, 0))
     }
 
-    // MARK: - Net (horizontal band at z = 0.5)
+    // MARK: - Net (edge-on vertical sliver at z = 0.5, screen center)
 
     private func drawNet(ctx: CGContext) {
         let nh = netHeight
-        let bl = proj(-1, 0.5, 0); let br = proj(1, 0.5, 0)
-        let tl = proj(-1, 0.5, nh); let tr = proj(1, 0.5, nh)
+        // All net points share screen x = W/2 (the net plane contains the camera);
+        // the visible extent runs from the near-sideline base up to the far-sideline top.
+        let baseNear = proj(-1, 0.5, 0)
+        let topNear  = proj(-1, 0.5, nh)
+        let topFar   = proj(1, 0.5, nh)
 
-        // Mesh body
-        fillQuad(ctx, bl, br, tr, tl, color: CGColor(red: 0.09, green: 0.10, blue: 0.11, alpha: 0.50))
-
-        // Vertical strands
-        ctx.setStrokeColor(CGColor(red: 0.16, green: 0.17, blue: 0.18, alpha: 0.65))
-        ctx.setLineWidth(0.8)
-        let vSteps = 55
-        for i in 0...vSteps {
-            let wx = -1 + 2 * CGFloat(i) / CGFloat(vSteps)
-            line(ctx, from: proj(wx, 0.5, 0), to: proj(wx, 0.5, nh))
-        }
-        // Horizontal strands
-        let hSteps = 10
-        for i in 1..<hSteps {
-            let wy = nh * CGFloat(i) / CGFloat(hSteps)
-            line(ctx, from: proj(-1, 0.5, wy), to: proj(1, 0.5, wy))
-        }
-
-        // White top tape
-        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.95))
-        ctx.setLineWidth(6.0)
-        line(ctx, from: tl, to: tr)
-
-        // Posts: center + sides
-        drawPost(ctx, atX: 0)
-        drawPost(ctx, atX: -1)
+        // Far post behind the mesh
         drawPost(ctx, atX: 1)
+
+        // Mesh body — thin vertical band
+        let bandHalf = max(1.0, 0.06 * ppf(atWx: 0))
+        ctx.setFillColor(CGColor(red: 0.09, green: 0.10, blue: 0.11, alpha: 0.80))
+        ctx.fill(CGRect(x: baseNear.x - bandHalf, y: baseNear.y,
+                        width: bandHalf * 2, height: topFar.y - baseNear.y))
+
+        // White top tape seen edge-on (near-sideline top to far-sideline top)
+        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.95))
+        ctx.setLineWidth(4.0)
+        line(ctx, from: topNear, to: topFar)
+
+        // Near post in front
+        drawPost(ctx, atX: -1)
     }
 
     private func drawPost(_ ctx: CGContext, atX wx: CGFloat) {
         let base = proj(wx, 0.5, 0)
         let top  = proj(wx, 0.5, netHeight)
-        let w: CGFloat = 7 * scale(0.5)
+        let w: CGFloat = 0.25 * ppf(atWx: wx)
         ctx.setStrokeColor(CGColor(red: 0.08, green: 0.09, blue: 0.10, alpha: 1))
         ctx.setLineWidth(w)
         ctx.setLineCap(.round)
@@ -413,9 +493,9 @@ class PickleballScreensaverView: ScreenSaverView {
     private func drawBallShadow(ctx: CGContext) {
         let sp = proj(ball.x, ball.z, 0)
         let fade = max(0, 1 - ball.y / 0.6)
-        let s = scale(ball.z)
-        let rw: CGFloat = 26 * s * fade
-        let rh: CGFloat = 10 * s * fade
+        let s = ppf(atWx: ball.x)
+        let rw: CGFloat = 0.55 * s * fade
+        let rh: CGFloat = rw * 0.30
         // Soft penumbra
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.12 * fade))
         ctx.fillEllipse(in: CGRect(x: sp.x - rw * 1.5, y: sp.y - rh * 1.5, width: rw * 3, height: rh * 3))
@@ -430,8 +510,7 @@ class PickleballScreensaverView: ScreenSaverView {
         let count = trailPoints.count
         for (i, t) in trailPoints.enumerated() {
             let frac = CGFloat(i) / CGFloat(count)
-            let s = scale(t.z)
-            let r = 20.0 * s * frac * 0.6
+            let r = 0.40 * ppf(atWx: t.x) * frac
             let p = proj(t)
             ctx.setFillColor(CGColor(red: 1, green: 0.85, blue: 0.1, alpha: frac * 0.28))
             ctx.fillEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
@@ -442,9 +521,9 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func drawBall(ctx: CGContext) {
         let p = proj(ball)
-        let s = scale(ball.z)
-        let r: CGFloat = 26 * s
-        let rim: CGFloat = 1.8 * s
+        let s = ppf(atWx: ball.x)
+        let r: CGFloat = 0.60 * s
+        let rim: CGFloat = 0.05 * s
 
         // Dark outline ring
         ctx.setFillColor(CGColor(red: 0.05, green: 0.05, blue: 0.05, alpha: 1))
@@ -460,7 +539,7 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.translateBy(x: p.x, y: p.y)
         ctx.rotate(by: ballSpin)
         ctx.setBlendMode(.clear)
-        let hr: CGFloat = max(2.5, 4.0 * s)
+        let hr: CGFloat = max(1.5, r * 0.15)
         // Inner ring: 5 holes evenly spaced
         for i in 0..<5 {
             let a = CGFloat(i) / 5 * .pi * 2
@@ -485,9 +564,11 @@ class PickleballScreensaverView: ScreenSaverView {
 
     // MARK: - Paddle (charcoal with skull & crossbones)
 
-    private func drawPaddle(ctx: CGContext, state: PaddleState, wz: CGFloat) {
-        let s = scale(wz)
-        let pivot = proj(state.x, wz, 0.08)   // waist height — face arcs upward through contact
+    private func drawPaddle(ctx: CGContext, state: PlayerState, wz: CGFloat, side: CGFloat) {
+        let wx = paddleWx(state, side: side)
+        let s = ppf(atWx: wx) / 32.0   // art was authored at ~32 px/ft
+        // Grip pivot rises through the swing (low-to-high sweep)
+        let pivot = proj(wx, wz, 0.06 + state.pivotLift)
 
         let faceW: CGFloat = 82 * s
         let faceH: CGFloat = 108 * s
@@ -496,7 +577,9 @@ class PickleballScreensaverView: ScreenSaverView {
 
         ctx.saveGState()
         ctx.translateBy(x: pivot.x, y: pivot.y)
-        ctx.rotate(by: state.swingAngle)
+        // Negate for the left player so the head tips back on the windup and
+        // toward the net on the follow-through for both sides
+        ctx.rotate(by: -side * state.swingAngle)
 
         // Handle hangs DOWN from grip pivot; face extends UP
         let handleRect = CGRect(x: -handleW / 2, y: -handleLen, width: handleW, height: handleLen)
@@ -592,21 +675,15 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.fillPath()
     }
 
-    // MARK: - Clock (bottom-left)
+    // MARK: - Clock (bottom-left screen overlay)
 
     private func drawClock(ctx: CGContext, rect: NSRect) {
         let now = Date()
         let timeFmt = DateFormatter(); timeFmt.dateFormat = "h:mm a"
         let dateFmt = DateFormatter(); dateFmt.dateFormat = "EEEE, MMMM d"
 
-        // Left blue service box: wx=-1..0, wz=0..kitchenNearZ
-        let boxBL = proj(-1, 0, 0)
-        let boxTL = proj(-1, kitchenNearZ, 0)
-        let boxBR = proj(0,  0, 0)
-        let boxH  = boxTL.y - boxBL.y
-        let boxW  = boxBR.x - boxBL.x
-
-        let tSize = min(boxH * 0.38, boxW * 0.22)
+        let m = rect.height * 0.05
+        let tSize = rect.height * 0.075
         let dSize = tSize * 0.35
 
         let timeAttrs: [NSAttributedString.Key: Any] = [
@@ -621,48 +698,37 @@ class PickleballScreensaverView: ScreenSaverView {
         let timeAS = NSAttributedString(string: timeFmt.string(from: now), attributes: timeAttrs)
         let dateAS = NSAttributedString(string: dateFmt.string(from: now), attributes: dateAttrs)
 
-        let xPad: CGFloat = boxW * 0.06
-        let x = boxBL.x + xPad
-        let dateY = boxBL.y + boxH * 0.08
-        let timeY = dateY + dSize * 1.3 + 4
-        dateAS.draw(at: NSPoint(x: x, y: dateY))
-        timeAS.draw(at: NSPoint(x: x, y: timeY))
+        dateAS.draw(at: NSPoint(x: m, y: m))
+        timeAS.draw(at: NSPoint(x: m, y: m + dSize * 1.4))
     }
 
-    // MARK: - Calendar (right blue service box)
+    // MARK: - Calendar (bottom-right screen overlay)
 
     private func drawCalendar(ctx: CGContext, rect: NSRect) {
-        let boxBL = proj(0,  0, 0)
-        let boxBR = proj(1,  0, 0)
-        let _ = proj(1,  kitchenNearZ, 0)
-        let boxTL = proj(0,  kitchenNearZ, 0)
-        let boxW  = boxBR.x - boxBL.x
-        let boxH  = boxTL.y - boxBL.y
+        let m    = rect.height * 0.05
+        let maxW = rect.width * 0.24
+        let x    = rect.width - m - maxW
 
-        let pad   = boxW * 0.06
-        let x     = boxBL.x + pad
-        let maxW  = boxW - pad * 2
-
-        let headerSize: CGFloat = min(boxH * 0.13, maxW * 0.09)
-        let rowSize:    CGFloat = min(boxH * 0.09, maxW * 0.06)
+        let headerSize: CGFloat = rect.height * 0.022
+        let rowSize:    CGFloat = rect.height * 0.018
         let lineH       = rowSize * 1.45
 
         let timeFmt = DateFormatter(); timeFmt.dateFormat = "h:mm a"
 
-        // "TODAY" header
+        // "TODAY" header at the top of the block
         let headerAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: headerSize, weight: .semibold),
             .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.55)
         ]
         let headerStr = NSAttributedString(string: "TODAY", attributes: headerAttrs)
-        var curY = boxTL.y - headerSize * 1.5
+        var curY = rect.height * 0.28
         headerStr.draw(at: NSPoint(x: x, y: curY))
         curY -= headerSize * 0.4
 
         // Divider line
         ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.20))
         ctx.setLineWidth(0.8)
-        line(ctx, from: CGPoint(x: x, y: curY), to: CGPoint(x: boxBR.x - pad, y: curY))
+        line(ctx, from: CGPoint(x: x, y: curY), to: CGPoint(x: x + maxW, y: curY))
         curY -= rowSize * 0.6
 
         let rowAttrs: [NSAttributedString.Key: Any] = [
@@ -680,7 +746,7 @@ class PickleballScreensaverView: ScreenSaverView {
         } else {
             for event in todayEvents {
                 curY -= lineH
-                if curY < boxBL.y + rowSize { break }
+                if curY < m { break }
 
                 // Time label
                 let timeStr = event.isAllDay ? "All day" : timeFmt.string(from: event.startDate)
