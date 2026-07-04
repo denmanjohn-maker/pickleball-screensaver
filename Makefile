@@ -3,9 +3,11 @@ CONTENTS   = $(BUNDLE)/Contents
 MACOS_DIR  = $(CONTENTS)/MacOS
 RES_DIR    = $(CONTENTS)/Resources
 BINARY     = $(MACOS_DIR)/PickleballScreensaver
-SOURCES    = PickleballScreensaver/PickleballScreensaverView.swift
+SOURCES    = $(wildcard PickleballScreensaver/*.swift)
 PLIST_SRC  = PickleballScreensaver/Info.plist
-RESOURCES  = PickleballScreensaver/Resources/paddle.png
+RESOURCES  = PickleballScreensaver/Resources/paddle.png \
+             PickleballScreensaver/Resources/thumbnail.png \
+             PickleballScreensaver/Resources/thumbnail@2x.png
 SDK        = $(shell xcrun --show-sdk-path)
 ARCH       = $(shell uname -m)
 TARGET     = $(ARCH)-apple-macos14.0
@@ -22,6 +24,7 @@ $(BUNDLE): $(SOURCES) $(PLIST_SRC) $(RESOURCES)
 		-target "$(TARGET)" \
 		-framework Cocoa \
 		-framework ScreenSaver \
+		-framework Photos \
 		-module-name PickleballScreensaver \
 		$(SOURCES) \
 		-emit-library \
