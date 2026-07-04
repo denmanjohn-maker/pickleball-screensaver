@@ -12,6 +12,7 @@ PHOTOSYNC_SOURCES = $(wildcard PhotoSync/*.swift) PickleballScreensaver/PhotoSyn
 PLIST_SRC  = PickleballScreensaver/Info.plist
 PHOTOSYNC_PLIST_SRC = PhotoSync/Info.plist
 RESOURCES  = PickleballScreensaver/Resources/paddle.png \
+             PickleballScreensaver/Resources/background.png \
              PickleballScreensaver/Resources/thumbnail.png \
              PickleballScreensaver/Resources/thumbnail@2x.png \
              PickleballScreensaver/Resources/drills.json
