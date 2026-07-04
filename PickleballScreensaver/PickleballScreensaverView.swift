@@ -52,7 +52,7 @@ class PickleballScreensaverView: ScreenSaverView {
     // Physics
     private let gravity:    CGFloat = -2.6
     private let bounceDamp: CGFloat = 0.55
-    private let netHeight:  CGFloat = 0.32
+    private let netHeight:  CGFloat = 0.32   // sideline/post height (36 in); netTopY(_:) gives the sagging top
     private let zSpeed:     CGFloat = 0.52   // depth speed of the ball (units / sec)
     private let paddleSpeed: CGFloat = 1.30  // lateral tracking speed (units / sec)
 
@@ -282,11 +282,11 @@ class PickleballScreensaverView: ScreenSaverView {
         updateSwing(&leftPlayer,  side:  1, dt: dt)
         updateSwing(&rightPlayer, side: -1, dt: dt)
 
-        // Net clearance safety check
+        // Net clearance safety check (against the sagging top at the crossing point)
         if (prevZ - 0.5) * (ball.z - 0.5) < 0 {
             let t = (0.5 - prevZ) / (ball.z - prevZ)
             let yAtNet = (ball.y - bVel.y * dt) + bVel.y * dt * t
-            if yAtNet < netHeight { faultTimer = 1.0 }
+            if yAtNet < netTopY(ball.x) { faultTimer = 1.0 }
         }
 
         // Hit detection — left player (ball arriving at screen left)
