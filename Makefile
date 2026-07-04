@@ -13,7 +13,8 @@ PLIST_SRC  = PickleballScreensaver/Info.plist
 PHOTOSYNC_PLIST_SRC = PhotoSync/Info.plist
 RESOURCES  = PickleballScreensaver/Resources/paddle.png \
              PickleballScreensaver/Resources/thumbnail.png \
-             PickleballScreensaver/Resources/thumbnail@2x.png
+             PickleballScreensaver/Resources/thumbnail@2x.png \
+             PickleballScreensaver/Resources/drills.json
 SDK        = $(shell xcrun --show-sdk-path)
 ARCH       = $(shell uname -m)
 TARGET     = $(ARCH)-apple-macos14.0

@@ -1,9 +1,11 @@
 import Foundation
 import ScreenSaver
 
-/// Persisted toggle for the rotating facts card.
+/// Persisted toggles for the rotating facts card and the drill-of-the-day card.
 struct TipSettings {
     var enabled = true
+    var drillEnabled = true
+    var drillLevel = "all"   // "all" or a DUPR tier: "3.0", "3.5", "4.0", "5.0"
 
     private static let moduleName = "com.pickleball.screensaver"
     private static var defaults: ScreenSaverDefaults? {
@@ -12,8 +14,16 @@ struct TipSettings {
 
     static func load() -> TipSettings {
         var s = TipSettings()
-        if let d = defaults, d.object(forKey: "ShowPickleballTips") != nil {
-            s.enabled = d.bool(forKey: "ShowPickleballTips")
+        if let d = defaults {
+            if d.object(forKey: "ShowPickleballTips") != nil {
+                s.enabled = d.bool(forKey: "ShowPickleballTips")
+            }
+            if d.object(forKey: "ShowDrillOfTheDay") != nil {
+                s.drillEnabled = d.bool(forKey: "ShowDrillOfTheDay")
+            }
+            if let level = d.string(forKey: "DrillLevel") {
+                s.drillLevel = level
+            }
         }
         return s
     }
@@ -21,6 +31,8 @@ struct TipSettings {
     func save() {
         guard let d = Self.defaults else { return }
         d.set(enabled, forKey: "ShowPickleballTips")
+        d.set(drillEnabled, forKey: "ShowDrillOfTheDay")
+        d.set(drillLevel, forKey: "DrillLevel")
         d.synchronize()
     }
 }

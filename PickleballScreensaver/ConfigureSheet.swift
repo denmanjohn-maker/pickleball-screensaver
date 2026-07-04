@@ -74,8 +74,13 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
     private let fahrenheitRadio = NSButton(radioButtonWithTitle: "°F", target: nil, action: nil)
     private let celsiusRadio    = NSButton(radioButtonWithTitle: "°C", target: nil, action: nil)
     private let tipsCheck = NSButton(checkboxWithTitle: "Show pickleball tips & facts", target: nil, action: nil)
+    private let drillCheck = NSButton(checkboxWithTitle: "Show drill of the day", target: nil, action: nil)
+    private let drillLevelPopup = NSPopUpButton()
 
     private static let intervalTitles = ["15 seconds", "30 seconds", "1 minute", "5 minutes", "10 minutes"]
+    private static let drillLevelChoices = ["all", "3.0", "3.5", "4.0", "5.0"]
+    private static let drillLevelTitles = ["All levels", "3.0 Beginner", "3.5 Intermediate",
+                                           "4.0 Advanced", "5.0 Pro"]
 
     private(set) lazy var window: NSWindow = buildWindow()
 
@@ -101,6 +106,8 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         fahrenheitRadio.state = weatherSettings.useFahrenheit ? .on : .off
         celsiusRadio.state = weatherSettings.useFahrenheit ? .off : .on
         tipsCheck.state = tipSettings.enabled ? .on : .off
+        drillCheck.state = tipSettings.drillEnabled ? .on : .off
+        drillLevelPopup.selectItem(at: Self.drillLevelChoices.firstIndex(of: tipSettings.drillLevel) ?? 0)
         updateFolderLabel()
         refreshPhotoSyncStatus()
         updateEnabledState()
@@ -133,6 +140,10 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
             b.target = self
             b.action = #selector(unitChanged(_:))
         }
+        drillLevelPopup.addItems(withTitles: Self.drillLevelTitles)
+        drillCheck.target = self
+        drillCheck.action = #selector(drillToggled(_:))
+
         lookupButton.target = self
         lookupButton.action = #selector(lookupCity(_:))
         cityField.placeholderString = "City, e.g. Austin"
@@ -166,6 +177,8 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
             indent(locationLabel),
             indent(hstack([NSTextField(labelWithString: "Units:"), fahrenheitRadio, celsiusRadio])),
             tipsCheck,
+            drillCheck,
+            indent(hstack([NSTextField(labelWithString: "Drill level:"), drillLevelPopup])),
             hstack([spacer(), cancelButton, okButton]),
         ])
         stack.orientation = .vertical
@@ -230,9 +243,14 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         lookupButton.isEnabled = weatherOn
         fahrenheitRadio.isEnabled = weatherOn
         celsiusRadio.isEnabled = weatherOn
+        drillLevelPopup.isEnabled = drillCheck.state == .on
     }
 
     @objc private func weatherToggled(_ sender: Any?) {
+        updateEnabledState()
+    }
+
+    @objc private func drillToggled(_ sender: Any?) {
         updateEnabledState()
     }
 
@@ -296,6 +314,8 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         weatherSettings.useFahrenheit = fahrenheitRadio.state == .on
         weatherSettings.save()
         tipSettings.enabled = tipsCheck.state == .on
+        tipSettings.drillEnabled = drillCheck.state == .on
+        tipSettings.drillLevel = Self.drillLevelChoices[max(0, drillLevelPopup.indexOfSelectedItem)]
         tipSettings.save()
         dismiss(.OK)
     }
