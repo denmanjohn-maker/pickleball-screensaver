@@ -51,7 +51,7 @@ struct PhotoSettings {
 /// The owning view must keep this controller alive for the sheet's lifetime,
 /// and dismissal must go through sheetParent.endSheet — System Settings hangs
 /// on close()/stopModal.
-final class ConfigureSheetController: NSObject {
+final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
 
     private var settings = PhotoSettings.load()
     private var weatherSettings = WeatherSettings.load()
@@ -136,6 +136,7 @@ final class ConfigureSheetController: NSObject {
         lookupButton.target = self
         lookupButton.action = #selector(lookupCity(_:))
         cityField.placeholderString = "City, e.g. Austin"
+        cityField.delegate = self
         locationLabel.textColor = .secondaryLabelColor
         locationLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         locationLabel.lineBreakMode = .byTruncatingTail
@@ -239,6 +240,14 @@ final class ConfigureSheetController: NSObject {
         // Manual radio behaviour, same reason as the photo-source buttons
         fahrenheitRadio.state = sender == fahrenheitRadio ? .on : .off
         celsiusRadio.state = sender == celsiusRadio ? .on : .off
+    }
+
+    // Editing the city invalidates an earlier lookup; OK must not persist
+    // coordinates that no longer match the typed text.
+    func controlTextDidChange(_ obj: Notification) {
+        guard obj.object as? NSTextField === cityField, pendingPlace != nil else { return }
+        pendingPlace = nil
+        locationLabel.stringValue = "Click Look Up to confirm this location."
     }
 
     @objc private func lookupCity(_ sender: Any?) {
