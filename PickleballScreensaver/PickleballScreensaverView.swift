@@ -119,6 +119,10 @@ class PickleballScreensaverView: ScreenSaverView {
     private let tipPeriod: CGFloat = 30.0
     private let tipFadeSecs: CGFloat = 0.5
 
+    // Drill of the day (deterministic per calendar day)
+    private var drillEnabled = true
+    private var drillLevel = "all"
+
     // Shared formatters and accent — the overlays redraw every frame
     private let timeFmt: DateFormatter = { let f = DateFormatter(); f.dateFormat = "h:mm a"; return f }()
     private let dayFmt: DateFormatter = { let f = DateFormatter(); f.dateFormat = "EEEE, MMMM d"; return f }()
@@ -168,7 +172,10 @@ class PickleballScreensaverView: ScreenSaverView {
         fetchUpcomingEvents()
         NotificationCenter.default.addObserver(self, selector: #selector(eventStoreChanged),
                                                name: .EKEventStoreChanged, object: eventStore)
-        tipsEnabled = TipSettings.load().enabled
+        let tipSettings = TipSettings.load()
+        tipsEnabled = tipSettings.enabled
+        drillEnabled = tipSettings.drillEnabled
+        drillLevel = tipSettings.drillLevel
         // File loading and networking stay out of the tiny System Settings preview
         if !isPreview {
             let photoSettings = PhotoSettings.load()
@@ -588,7 +595,8 @@ class PickleballScreensaverView: ScreenSaverView {
         railY = drawClock(ctx: ctx, rect: rect, rail: rail, top: railY) - rail.gap
         railY = drawAgenda(ctx: ctx, rect: rect, rail: rail, top: railY) - rail.gap
         _ = drawWeather(ctx: ctx, rect: rect, rail: rail, top: railY)
-        drawTip(ctx: ctx, rect: rect, rail: rail)
+        let tipTop = drawTip(ctx: ctx, rect: rect, rail: rail)
+        drawDrill(ctx: ctx, rect: rect, rail: rail, bottom: tipTop + rail.gap)
         drawScoreboard(ctx: ctx, rect: rect)
     }
 
@@ -1192,10 +1200,12 @@ class PickleballScreensaverView: ScreenSaverView {
         return 1
     }
 
-    private func drawTip(ctx: CGContext, rect: NSRect, rail: Rail) {
-        guard tipsEnabled else { return }
-        let alpha = tipAlpha
-        guard alpha > 0 else { return }
+    // Returns the card's top edge so the drill card can stack above it
+    @discardableResult
+    private func drawTip(ctx: CGContext, rect: NSRect, rail: Rail) -> CGFloat {
+        let cardBottom = rect.height * 0.05
+        // With tips off the drill card takes the bottom slot (caller adds rail.gap)
+        guard tipsEnabled else { return cardBottom - rail.gap }
         let fact = PickleballFacts.all[tipOrder[tipIndex]]
 
         let kSize = rect.height * 0.0135
@@ -1207,13 +1217,15 @@ class PickleballScreensaverView: ScreenSaverView {
         let bodyH = ceil(bodyAS.boundingRect(with: NSSize(width: maxW, height: 1000),
                                              options: .usesLineFragmentOrigin).height)
         let contentH = kickerH + kSize * 0.5 + bodyH
-        let cardBottom = rect.height * 0.05
+        let cardTop = cardBottom + contentH + rail.pad * 2
+        let alpha = tipAlpha
+        guard alpha > 0 else { return cardTop }
 
         // Card and text fade together across the 30 s rotation
         ctx.saveGState()
         ctx.setAlpha(alpha)
         ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-        let content = drawCard(ctx, rail, top: cardBottom + contentH + rail.pad * 2,
+        let content = drawCard(ctx, rail, top: cardTop,
                                height: contentH + rail.pad * 2)
         let y = content.maxY - kickerH
         let bulb = drawSymbol("lightbulb.fill", at: CGPoint(x: content.minX, y: y + kSize * 0.05),
@@ -1224,6 +1236,61 @@ class PickleballScreensaverView: ScreenSaverView {
                     options: .usesLineFragmentOrigin)
         ctx.endTransparencyLayer()
         ctx.restoreGState()
+        return cardTop
+    }
+
+    // MARK: - Drill of the day card (above the fact card)
+
+    private func drawDrill(ctx: CGContext, rect: NSRect, rail: Rail, bottom: CGFloat) {
+        guard drillEnabled, let drill = PickleballDrills.drillOfTheDay(level: drillLevel) else { return }
+
+        let kSize = rect.height * 0.0135
+        let kickerH = kSize * 1.6
+        let titleSize = rect.height * 0.018
+        let metaSize = rect.height * 0.0135
+        let bodySize = rect.height * 0.016
+        let maxW = rail.width - rail.pad * 2
+
+        let titleAS = NSAttributedString(string: drill.name,
+                                         attributes: textAttrs(titleSize, .semibold, alpha: 0.95))
+        let titleH = ceil(titleAS.boundingRect(with: NSSize(width: maxW, height: 1000),
+                                               options: .usesLineFragmentOrigin).height)
+        let metaAS = NSAttributedString(string: "DUPR \(drill.level) · \(drill.category.uppercased()) · \(drill.minutes) MIN",
+                                        attributes: textAttrs(metaSize, .semibold, alpha: 0.40,
+                                                              kern: metaSize * 0.06))
+        let metaH = ceil(metaAS.size().height)
+
+        // Body capped at 5 lines so a wordy drill can't crowd the weather card;
+        // wrapping stays on and .truncatesLastVisibleLine ellipsizes the cutoff.
+        let bodyAttrs = textAttrs(bodySize, .regular, alpha: 0.85)
+        let bodyAS = NSAttributedString(string: drill.description, attributes: bodyAttrs)
+        let lineH = ceil(NSAttributedString(string: "Ag", attributes: bodyAttrs)
+            .boundingRect(with: NSSize(width: maxW, height: 1000),
+                          options: .usesLineFragmentOrigin).height)
+        let naturalH = ceil(bodyAS.boundingRect(with: NSSize(width: maxW, height: 1000),
+                                                options: .usesLineFragmentOrigin).height)
+        let bodyH = min(naturalH, lineH * 5)
+
+        let contentH = kickerH + kSize * 0.5 + titleH + metaH + kSize * 0.5 + bodyH
+        let content = drawCard(ctx, rail, top: bottom + contentH + rail.pad * 2,
+                               height: contentH + rail.pad * 2)
+
+        var y = content.maxY - kickerH
+        let symbol = NSImage(systemSymbolName: "figure.pickleball", accessibilityDescription: nil) != nil
+            ? "figure.pickleball" : "figure.tennis"
+        let glyph = drawSymbol(symbol, at: CGPoint(x: content.minX, y: y + kSize * 0.05),
+                               size: kSize * 1.15, alpha: 0.85, color: accentYellow)
+        NSAttributedString(string: "DRILL OF THE DAY", attributes: kickerAttrs(kSize))
+            .draw(at: NSPoint(x: glyph.maxX + kSize * 0.6, y: y))
+
+        y -= kSize * 0.5 + titleH
+        titleAS.draw(with: CGRect(x: content.minX, y: y, width: maxW, height: titleH),
+                     options: .usesLineFragmentOrigin)
+        y -= metaH
+        metaAS.draw(at: NSPoint(x: content.minX, y: y))
+        y -= kSize * 0.5 + bodyH
+        bodyAS.draw(with: CGRect(x: content.minX, y: y, width: maxW, height: bodyH),
+                    options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
     }
 
     // MARK: - Scoreboard (bottom-center glass pill; singles side-out scoring)
