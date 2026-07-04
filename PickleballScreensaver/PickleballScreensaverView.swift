@@ -52,7 +52,7 @@ class PickleballScreensaverView: ScreenSaverView {
     // Physics
     private let gravity:    CGFloat = -2.6
     private let bounceDamp: CGFloat = 0.55
-    private let netHeight:  CGFloat = 0.32
+    private let netHeight:  CGFloat = 0.32   // sideline/post height (36 in); netTopY(_:) gives the sagging top
     private let zSpeed:     CGFloat = 0.52   // depth speed of the ball (units / sec)
     private let paddleSpeed: CGFloat = 1.30  // lateral tracking speed (units / sec)
 
@@ -73,6 +73,11 @@ class PickleballScreensaverView: ScreenSaverView {
     // Players (invisible bodies holding the paddles; both right-handed)
     private let reach:     CGFloat = 0.18     // paddle contact offset from body (1.8 ft)
     private let hitWindow: CGFloat = 0.45     // max |ball.x - contact point| for a clean hit
+
+    // Real-world equipment sizes
+    private let paddleLenFt: CGFloat = 16.0 / 12.0   // regulation ~16 in overall
+    private let ballRFt: CGFloat = 0.121 * 1.75      // regulation 1.45 in radius, drawn 1.75x for visibility
+    private var minBallPx: CGFloat { max(2.0, bounds.height * 0.004) }   // keep the ball visible at the far court
 
     // Swing shape — the paddle sweeps back and down into the windup, then makes
     // one fluid low-to-high forward stroke. Ball contact lands at the exact
@@ -277,11 +282,11 @@ class PickleballScreensaverView: ScreenSaverView {
         updateSwing(&leftPlayer,  side:  1, dt: dt)
         updateSwing(&rightPlayer, side: -1, dt: dt)
 
-        // Net clearance safety check
+        // Net clearance safety check (against the sagging top at the crossing point)
         if (prevZ - 0.5) * (ball.z - 0.5) < 0 {
             let t = (0.5 - prevZ) / (ball.z - prevZ)
             let yAtNet = (ball.y - bVel.y * dt) + bVel.y * dt * t
-            if yAtNet < netHeight { faultTimer = 1.0 }
+            if yAtNet < netTopY(ball.x) { faultTimer = 1.0 }
         }
 
         // Hit detection — left player (ball arriving at screen left)
@@ -556,13 +561,27 @@ class PickleballScreensaverView: ScreenSaverView {
 
     // MARK: - Net (vertical band at z = 0.5, seen at an angle from the corner camera)
 
-    private func drawNet(ctx: CGContext) {
-        let nh = netHeight
-        let bl = proj(-1, 0.5, 0); let br = proj(1, 0.5, 0)
-        let tl = proj(-1, 0.5, nh); let tr = proj(1, 0.5, nh)
+    // Regulation net height: 36 in at the sidelines sagging to 34 in at the center
+    private func netTopY(_ wx: CGFloat) -> CGFloat {
+        (34 + 2 * wx * wx) / (12 * ftPerY)
+    }
 
-        // Mesh body
-        fillQuad(ctx, bl, br, tr, tl, color: CGColor(red: 0.09, green: 0.10, blue: 0.11, alpha: 0.50))
+    private func drawNet(ctx: CGContext) {
+        let sagSteps = 16
+        let topPts: [CGPoint] = (0...sagSteps).map { i in
+            let wx = -1 + 2 * CGFloat(i) / CGFloat(sagSteps)
+            return proj(wx, 0.5, netTopY(wx))
+        }
+        let bl = proj(-1, 0.5, 0); let br = proj(1, 0.5, 0)
+
+        // Mesh body (top edge follows the sag)
+        ctx.setFillColor(CGColor(red: 0.09, green: 0.10, blue: 0.11, alpha: 0.50))
+        ctx.beginPath()
+        ctx.move(to: bl)
+        ctx.addLine(to: br)
+        for p in topPts.reversed() { ctx.addLine(to: p) }
+        ctx.closePath()
+        ctx.fillPath()
 
         // Vertical strands
         ctx.setStrokeColor(CGColor(red: 0.16, green: 0.17, blue: 0.18, alpha: 0.65))
@@ -570,19 +589,29 @@ class PickleballScreensaverView: ScreenSaverView {
         let vSteps = 55
         for i in 0...vSteps {
             let wx = -1 + 2 * CGFloat(i) / CGFloat(vSteps)
-            line(ctx, from: proj(wx, 0.5, 0), to: proj(wx, 0.5, nh))
+            line(ctx, from: proj(wx, 0.5, 0), to: proj(wx, 0.5, netTopY(wx)))
         }
-        // Horizontal strands
+        // Horizontal strands (each follows the sag at its height fraction)
         let hSteps = 10
         for i in 1..<hSteps {
-            let wy = nh * CGFloat(i) / CGFloat(hSteps)
-            line(ctx, from: proj(-1, 0.5, wy), to: proj(1, 0.5, wy))
+            let f = CGFloat(i) / CGFloat(hSteps)
+            ctx.beginPath()
+            for j in 0...sagSteps {
+                let wx = -1 + 2 * CGFloat(j) / CGFloat(sagSteps)
+                let p = proj(wx, 0.5, f * netTopY(wx))
+                j == 0 ? ctx.move(to: p) : ctx.addLine(to: p)
+            }
+            ctx.strokePath()
         }
 
         // White top tape
         ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.95))
         ctx.setLineWidth(5.0)
-        line(ctx, from: tl, to: tr)
+        ctx.beginPath()
+        for (i, p) in topPts.enumerated() {
+            i == 0 ? ctx.move(to: p) : ctx.addLine(to: p)
+        }
+        ctx.strokePath()
 
         // Posts: center + sides
         drawPost(ctx, atX: 0)
@@ -592,7 +621,7 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func drawPost(_ ctx: CGContext, atX wx: CGFloat) {
         let base = proj(wx, 0.5, 0)
-        let top  = proj(wx, 0.5, netHeight)
+        let top  = proj(wx, 0.5, netTopY(wx))
         let w: CGFloat = 0.25 * ppf(atWx: wx, atWz: 0.5)
         ctx.setStrokeColor(CGColor(red: 0.08, green: 0.09, blue: 0.10, alpha: 1))
         ctx.setLineWidth(w)
@@ -607,7 +636,7 @@ class PickleballScreensaverView: ScreenSaverView {
         let sp = proj(ball.x, ball.z, 0)
         let fade = max(0, 1 - ball.y / 0.6)
         let s = ppf(atWx: ball.x, atWz: ball.z)
-        let rw: CGFloat = 0.55 * s * fade
+        let rw: CGFloat = max(minBallPx, ballRFt * s) * 1.1 * fade
         let rh: CGFloat = rw * 0.30
         // Soft penumbra
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.12 * fade))
@@ -623,7 +652,7 @@ class PickleballScreensaverView: ScreenSaverView {
         let count = trailPoints.count
         for (i, t) in trailPoints.enumerated() {
             let frac = CGFloat(i) / CGFloat(count)
-            let r = 0.40 * ppf(atWx: t.x, atWz: t.z) * frac
+            let r = max(minBallPx, ballRFt * ppf(atWx: t.x, atWz: t.z)) * frac
             let p = proj(t)
             ctx.setFillColor(CGColor(red: 1, green: 0.85, blue: 0.1, alpha: frac * 0.28))
             ctx.fillEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
@@ -635,8 +664,8 @@ class PickleballScreensaverView: ScreenSaverView {
     private func drawBall(ctx: CGContext) {
         let p = proj(ball)
         let s = ppf(atWx: ball.x, atWz: ball.z)
-        let r: CGFloat = 0.60 * s
-        let rim: CGFloat = 0.05 * s
+        let r: CGFloat = max(minBallPx, ballRFt * s)
+        let rim: CGFloat = max(0.6, r * 0.09)
 
         // Dark outline ring
         ctx.setFillColor(CGColor(red: 0.05, green: 0.05, blue: 0.05, alpha: 1))
@@ -652,7 +681,7 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.translateBy(x: p.x, y: p.y)
         ctx.rotate(by: ballSpin)
         ctx.setBlendMode(.clear)
-        let hr: CGFloat = max(1.5, r * 0.15)
+        let hr: CGFloat = max(0.6, r * 0.15)
         // Inner ring: 5 holes evenly spaced
         for i in 0..<5 {
             let a = CGFloat(i) / 5 * .pi * 2
@@ -675,15 +704,37 @@ class PickleballScreensaverView: ScreenSaverView {
                                    width: r * 0.76, height: r * 0.50))
     }
 
-    // MARK: - Paddle (charcoal with skull & crossbones)
+    // MARK: - Paddle (PNG sprite at regulation size)
+
+    // Sprite geometry measured from the asset's alpha profile: fractions of the
+    // image height, from the bottom, for the grip junction (rotation pivot) and
+    // the face center (ball contact point).
+    private static let paddleAspect:         CGFloat = 0.514   // width / height
+    private static let paddlePivotFrac:      CGFloat = 0.38
+    private static let paddleFaceCenterFrac: CGFloat = 0.695
+
+    // Loaded once; the extra paths let the offscreen preview harness (which
+    // compiles this view outside the saver bundle) find the asset too.
+    private static let paddleImage: CGImage? = {
+        let candidates: [URL?] = [
+            Bundle(for: PickleballScreensaverView.self).url(forResource: "paddle", withExtension: "png"),
+            Bundle.main.url(forResource: "paddle", withExtension: "png"),
+            URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
+                .appendingPathComponent("paddle.png"),
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent("PickleballScreensaver/Resources/paddle.png"),
+        ]
+        for c in candidates {
+            if let c, let img = NSImage(contentsOf: c),
+               let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) { return cg }
+        }
+        return nil
+    }()
 
     private func drawPaddle(ctx: CGContext, state: PlayerState, wz: CGFloat, side: CGFloat) {
         let wx = paddleWx(state, side: side)
-        let s = ppf(atWx: wx, atWz: wz) / 32.0   // art was authored at ~32 px/ft
-        let faceW: CGFloat = 82 * s
-        let faceH: CGFloat = 108 * s
-        let handleLen: CGFloat = 58 * s
-        let handleW:   CGFloat = 14 * s
+        let hPx = paddleLenFt * ppf(atWx: wx, atWz: wz)
+        let wPx = hPx * Self.paddleAspect
 
         // The face center rides the stroke path (back-and-down, low-to-high,
         // finish, recover); the grip pivot hangs off it along the paddle axis.
@@ -691,111 +742,50 @@ class PickleballScreensaverView: ScreenSaverView {
         // on the ball; at every other pose the same offset keeps the paddle
         // rotating rigidly about the grip.
         let face = proj(wx, wz + state.faceDZ, state.faceY)
-        let faceCenterPx = faceH * 0.52
-        // Rest pose is HORIZONTAL: face points at the net, handle toward the body
-        // (-pi/2 rotates the upright sprite to point right for the left player;
-        // mirrored for the right player). The swing angle sweeps the head from
-        // hanging low-behind, through horizontal contact, to a high finish.
-        let phi = side * (state.swingAngle - .pi / 2)
+        let faceCenterPx = (Self.paddleFaceCenterFrac - Self.paddlePivotFrac) * hPx
+        // Rest pose is HORIZONTAL: face points at the net, handle toward the body.
+        // The paddle axis lives in the world z-y plane (toward-net tilted by the
+        // swing angle); project a short probe along it through the camera so the
+        // on-screen rotation matches the perspective at either baseline.
+        let kFt: CGFloat = 0.5   // probe length in feet
+        let tip = proj(wx,
+                       wz + state.faceDZ + side * cos(state.swingAngle) * kFt / ftPerZ,
+                       state.faceY + sin(state.swingAngle) * kFt / ftPerY)
+        let phi = atan2(tip.y - face.y, tip.x - face.x) - .pi / 2
         let pivot = CGPoint(x: face.x + faceCenterPx * sin(phi),
                             y: face.y - faceCenterPx * cos(phi))
 
         ctx.saveGState()
         ctx.translateBy(x: pivot.x, y: pivot.y)
         ctx.rotate(by: phi)
+        // The far paddle is seen from its other side; mirror so the players
+        // read as mirror images of each other
+        if side < 0 { ctx.scaleBy(x: -1, y: 1) }
 
-        // Sprite is authored upright: handle hangs DOWN from grip pivot, face extends UP
-        let handleRect = CGRect(x: -handleW / 2, y: -handleLen, width: handleW, height: handleLen)
-        let faceRect   = CGRect(x: -faceW / 2,   y: 0,          width: faceW,   height: faceH)
-        let faceCenter = CGPoint(x: 0, y: faceH * 0.52)
-
-        // Shadow pass
-        ctx.saveGState()
-        ctx.setShadow(offset: CGSize(width: 4 * s, height: -5 * s), blur: 9 * s,
+        // Sprite is authored upright: handle hangs DOWN from the grip pivot,
+        // face extends UP; the image rect places the pivot at the grip junction
+        let spriteRect = CGRect(x: -wPx / 2, y: -Self.paddlePivotFrac * hPx,
+                                width: wPx, height: hPx)
+        ctx.setShadow(offset: CGSize(width: 0.05 * hPx, height: -0.06 * hPx),
+                      blur: 0.10 * hPx,
                       color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.55))
-        // Handle (charcoal)
-        ctx.setFillColor(CGColor(red: 0.16, green: 0.18, blue: 0.19, alpha: 1))
-        ctx.addPath(CGPath(roundedRect: handleRect, cornerWidth: 4 * s, cornerHeight: 4 * s, transform: nil))
-        ctx.fillPath()
-        // Face (charcoal)
-        ctx.setFillColor(CGColor(red: 0.17, green: 0.20, blue: 0.21, alpha: 1))
-        ctx.addPath(CGPath(roundedRect: faceRect, cornerWidth: 12 * s, cornerHeight: 12 * s, transform: nil))
-        ctx.fillPath()
-        ctx.restoreGState()
-
-        // Inner panel (slightly lighter)
-        let inner = faceRect.insetBy(dx: 3 * s, dy: 3 * s)
-        ctx.setFillColor(CGColor(red: 0.21, green: 0.24, blue: 0.25, alpha: 1))
-        ctx.addPath(CGPath(roundedRect: inner, cornerWidth: 10 * s, cornerHeight: 10 * s, transform: nil))
-        ctx.fillPath()
-
-        // Skull & crossbones
-        drawSkull(ctx, center: faceCenter, scale: s)
-
-        // Grip stripes (diagonal)
-        ctx.setStrokeColor(CGColor(red: 0.30, green: 0.32, blue: 0.33, alpha: 0.8))
-        ctx.setLineWidth(2.0 * s)
-        ctx.saveGState()
-        ctx.addPath(CGPath(roundedRect: handleRect, cornerWidth: 4 * s, cornerHeight: 4 * s, transform: nil))
-        ctx.clip()
-        var gy = handleRect.minY - handleW
-        while gy < handleRect.maxY + handleW {
-            line(ctx, from: CGPoint(x: handleRect.minX - 2, y: gy),
-                      to:   CGPoint(x: handleRect.maxX + 2, y: gy + handleW))
-            gy += 6 * s
+        if let img = Self.paddleImage {
+            ctx.interpolationQuality = .high
+            ctx.draw(img, in: spriteRect)
+        } else {
+            // Fallback silhouette so a packaging mistake never hides the paddles
+            let handleW = 0.27 * wPx
+            ctx.setFillColor(CGColor(red: 0.17, green: 0.20, blue: 0.21, alpha: 1))
+            ctx.addPath(CGPath(roundedRect: CGRect(x: -handleW / 2, y: spriteRect.minY,
+                                                   width: handleW, height: Self.paddlePivotFrac * hPx),
+                               cornerWidth: handleW * 0.3, cornerHeight: handleW * 0.3, transform: nil))
+            ctx.addPath(CGPath(roundedRect: CGRect(x: -wPx / 2, y: 0,
+                                                   width: wPx, height: (1 - Self.paddlePivotFrac) * hPx),
+                               cornerWidth: wPx * 0.15, cornerHeight: wPx * 0.15, transform: nil))
+            ctx.fillPath()
         }
-        ctx.restoreGState()
 
         ctx.restoreGState()
-    }
-
-    private func drawSkull(_ ctx: CGContext, center: CGPoint, scale s: CGFloat) {
-        let white = CGColor(red: 0.95, green: 0.96, blue: 0.97, alpha: 1)
-        let dark  = CGColor(red: 0.17, green: 0.20, blue: 0.21, alpha: 1)
-        let headR: CGFloat = 20 * s
-
-        // Crossbones (two crossed capsules behind skull)
-        ctx.setStrokeColor(white)
-        ctx.setLineWidth(5 * s)
-        ctx.setLineCap(.round)
-        let bl = headR * 1.7
-        for ang in [CGFloat.pi / 4, -CGFloat.pi / 4] {
-            let dx = cos(ang) * bl, dy = sin(ang) * bl
-            line(ctx, from: CGPoint(x: center.x - dx, y: center.y - dy),
-                      to:   CGPoint(x: center.x + dx, y: center.y + dy))
-        }
-        // Bone knobs at the four ends
-        ctx.setFillColor(white)
-        for ang in [CGFloat.pi / 4, 3 * CGFloat.pi / 4, 5 * CGFloat.pi / 4, 7 * CGFloat.pi / 4] {
-            let dx = cos(ang) * bl, dy = sin(ang) * bl
-            let kr = 3.2 * s
-            ctx.fillEllipse(in: CGRect(x: center.x + dx - kr, y: center.y + dy - kr, width: kr * 2, height: kr * 2))
-        }
-        ctx.setLineCap(.butt)
-
-        // Skull head
-        ctx.setFillColor(white)
-        ctx.fillEllipse(in: CGRect(x: center.x - headR, y: center.y - headR * 0.85,
-                                   width: headR * 2, height: headR * 1.85))
-        // Jaw
-        ctx.fillEllipse(in: CGRect(x: center.x - headR * 0.55, y: center.y - headR * 1.25,
-                                   width: headR * 1.1, height: headR * 0.7))
-
-        // Eyes
-        ctx.setFillColor(dark)
-        let eyeR = headR * 0.32
-        ctx.fillEllipse(in: CGRect(x: center.x - headR * 0.5 - eyeR, y: center.y + headR * 0.1 - eyeR,
-                                   width: eyeR * 2, height: eyeR * 2))
-        ctx.fillEllipse(in: CGRect(x: center.x + headR * 0.5 - eyeR, y: center.y + headR * 0.1 - eyeR,
-                                   width: eyeR * 2, height: eyeR * 2))
-        // Nose
-        let nb = headR * 0.18
-        ctx.beginPath()
-        ctx.move(to: CGPoint(x: center.x, y: center.y - headR * 0.05))
-        ctx.addLine(to: CGPoint(x: center.x - nb, y: center.y - headR * 0.45))
-        ctx.addLine(to: CGPoint(x: center.x + nb, y: center.y - headR * 0.45))
-        ctx.closePath()
-        ctx.fillPath()
     }
 
     // MARK: - Clock (bottom-left screen overlay)
