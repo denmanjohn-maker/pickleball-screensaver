@@ -120,6 +120,10 @@ class PickleballScreensaverView: ScreenSaverView {
     private var rightGames = 0
     private var gameBannerTimer: CGFloat = 0
 
+    // Photo dissolve overlay
+    private var photoController: PhotoOverlayController?
+    private var photoRect: CGRect = .zero
+
     // MARK: - Init
 
     override init?(frame: NSRect, isPreview: Bool) {
@@ -137,6 +141,13 @@ class PickleballScreensaverView: ScreenSaverView {
         wantsLayer = true
         resetRally(leftServes: leftServing)
         fetchTodayEvents()
+        // Photos/bookmark access stays out of the tiny System Settings preview
+        if !isPreview {
+            let photoSettings = PhotoSettings.load()
+            if photoSettings.source != .off {
+                photoController = PhotoOverlayController(settings: photoSettings)
+            }
+        }
     }
 
     private func fetchTodayEvents() {
@@ -276,6 +287,8 @@ class PickleballScreensaverView: ScreenSaverView {
         let now = Date().timeIntervalSinceReferenceDate
         let dt: CGFloat = lastFrameTime == 0 ? 1/60.0 : min(CGFloat(now - lastFrameTime), 0.05)
         lastFrameTime = now
+
+        updatePhotoOverlay(dt: dt)   // before the faultTimer early return
 
         if gameBannerTimer > 0 { gameBannerTimer -= dt }
 
@@ -500,6 +513,7 @@ class PickleballScreensaverView: ScreenSaverView {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         drawBackground(ctx: ctx, rect: rect)
         drawCourt(ctx: ctx)
+        drawPhoto(ctx: ctx)   // under ball, net, paddles, and overlays
         drawBallShadow(ctx: ctx)
         drawTrail(ctx: ctx)
 
@@ -996,8 +1010,78 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.strokePath()
     }
 
+    // MARK: - Photo overlay
+
+    private func updatePhotoOverlay(dt: CGFloat) {
+        guard let pc = photoController else { return }
+        pc.maxPixelSize = max(bounds.width, bounds.height) * (window?.backingScaleFactor ?? 2)
+        if pc.update(dt: dt), let img = pc.image {
+            photoRect = pickPhotoRect(for: img)
+        }
+    }
+
+    // Screen rect for a new photo: the bounding box of a random blue quadrant,
+    // avoiding the upper-left overlay column (clock + calendar), with the image
+    // aspect-fit inside.
+    private func pickPhotoRect(for image: CGImage) -> CGRect {
+        let quads: [(x0: CGFloat, x1: CGFloat, z0: CGFloat, z1: CGFloat)] = [
+            (-1, 0, 0, kitchenNearZ), (0, 1, 0, kitchenNearZ),
+            (-1, 0, kitchenFarZ, 1), (0, 1, kitchenFarZ, 1),
+        ].shuffled()
+        let overlays = CGRect(x: 0, y: bounds.height * 0.5,
+                              width: bounds.width * 0.30, height: bounds.height * 0.5)
+        var region = quadBounds(quads[0])
+        for q in quads {
+            let r = quadBounds(q)
+            if !r.intersects(overlays) { region = r; break }
+        }
+        if region.intersects(overlays), overlays.maxX < region.maxX - 40 {
+            // Every quadrant touches the overlay column — trim off its left side
+            region = CGRect(x: overlays.maxX, y: region.minY,
+                            width: region.maxX - overlays.maxX, height: region.height)
+        }
+        let aspect = CGFloat(image.width) / CGFloat(image.height)
+        var w = region.width, h = w / aspect
+        if h > region.height { h = region.height; w = h * aspect }
+        return CGRect(x: region.midX - w / 2, y: region.midY - h / 2, width: w, height: h)
+    }
+
+    private func quadBounds(_ q: (x0: CGFloat, x1: CGFloat, z0: CGFloat, z1: CGFloat)) -> CGRect {
+        let pts = [proj(q.x0, q.z0, 0), proj(q.x1, q.z0, 0), proj(q.x1, q.z1, 0), proj(q.x0, q.z1, 0)]
+        let xs = pts.map(\.x), ys = pts.map(\.y)
+        let r = CGRect(x: xs.min()!, y: ys.min()!,
+                       width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+        return r.insetBy(dx: r.width * 0.08, dy: r.height * 0.08)
+    }
+
+    private func drawPhoto(ctx: CGContext) {
+        guard let pc = photoController, let img = pc.image, !photoRect.isEmpty else { return }
+        let alpha = pc.alpha
+        guard alpha > 0 else { return }
+        ctx.saveGState()
+        ctx.setAlpha(alpha)
+        ctx.draw(img, in: photoRect)
+        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.6))
+        ctx.setLineWidth(2)
+        ctx.stroke(photoRect)
+        ctx.restoreGState()
+    }
+
+    /// Test hook for the offscreen harness: dissolve this image in on the next
+    /// frame without touching Photos or the filesystem.
+    func _debugShowPhoto(_ image: CGImage) {
+        let pc = photoController ?? PhotoOverlayController(settings: PhotoSettings())
+        photoController = pc
+        pc._debugInject(image)
+    }
+
     // MARK: - ScreenSaverView
 
-    override var hasConfigureSheet: Bool { false }
-    override var configureSheet: NSWindow? { nil }
+    private lazy var configureController = ConfigureSheetController()
+
+    override var hasConfigureSheet: Bool { true }
+    override var configureSheet: NSWindow? {
+        configureController.refresh()
+        return configureController.window
+    }
 }

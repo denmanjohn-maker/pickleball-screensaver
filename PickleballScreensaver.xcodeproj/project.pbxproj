@@ -8,12 +8,22 @@
 
 /* Begin PBXBuildFile section */
 		AA11000000000001 /* PickleballScreensaverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA22000000000001 /* PickleballScreensaverView.swift */; };
+		AA11000000000002 /* ConfigureSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA22000000000004 /* ConfigureSheet.swift */; };
+		AA11000000000003 /* PhotoOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA22000000000005 /* PhotoOverlay.swift */; };
+		AA11000000000004 /* paddle.png in Resources */ = {isa = PBXBuildFile; fileRef = AA22000000000006 /* paddle.png */; };
+		AA11000000000005 /* thumbnail.png in Resources */ = {isa = PBXBuildFile; fileRef = AA22000000000007 /* thumbnail.png */; };
+		AA11000000000006 /* thumbnail@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = AA22000000000008 /* thumbnail@2x.png */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		AA22000000000001 /* PickleballScreensaverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickleballScreensaverView.swift; sourceTree = "<group>"; };
 		AA22000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA22000000000003 /* PickleballScreensaver.saver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PickleballScreensaver.saver; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA22000000000004 /* ConfigureSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigureSheet.swift; sourceTree = "<group>"; };
+		AA22000000000005 /* PhotoOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoOverlay.swift; sourceTree = "<group>"; };
+		AA22000000000006 /* paddle.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/paddle.png; sourceTree = "<group>"; };
+		AA22000000000007 /* thumbnail.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/thumbnail.png; sourceTree = "<group>"; };
+		AA22000000000008 /* thumbnail@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Resources/thumbnail@2x.png"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -39,7 +49,12 @@
 			isa = PBXGroup;
 			children = (
 				AA22000000000001 /* PickleballScreensaverView.swift */,
+				AA22000000000004 /* ConfigureSheet.swift */,
+				AA22000000000005 /* PhotoOverlay.swift */,
 				AA22000000000002 /* Info.plist */,
+				AA22000000000006 /* paddle.png */,
+				AA22000000000007 /* thumbnail.png */,
+				AA22000000000008 /* thumbnail@2x.png */,
 			);
 			path = PickleballScreensaver;
 			sourceTree = "<group>";
@@ -111,6 +126,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA11000000000004 /* paddle.png in Resources */,
+				AA11000000000005 /* thumbnail.png in Resources */,
+				AA11000000000006 /* thumbnail@2x.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -122,6 +140,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA11000000000001 /* PickleballScreensaverView.swift in Sources */,
+				AA11000000000002 /* ConfigureSheet.swift in Sources */,
+				AA11000000000003 /* PhotoOverlay.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
