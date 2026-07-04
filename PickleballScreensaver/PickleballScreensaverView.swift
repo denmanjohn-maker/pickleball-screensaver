@@ -74,9 +74,9 @@ class PickleballScreensaverView: ScreenSaverView {
     private let reach:     CGFloat = 0.18     // paddle contact offset from body (1.8 ft)
     private let hitWindow: CGFloat = 0.45     // max |ball.x - contact point| for a clean hit
 
-    // Real-world equipment sizes
-    private let paddleLenFt: CGFloat = 16.0 / 12.0   // regulation ~16 in overall
-    private let ballRFt: CGFloat = 0.121 * 1.75      // regulation 1.45 in radius, drawn 1.75x for visibility
+    // Real-world equipment sizes (drawn intentionally oversized for readability)
+    private let paddleLenFt: CGFloat = (16.0 / 12.0) * 2.0   // regulation ~16 in, drawn 2x
+    private let ballRFt: CGFloat = 0.121 * 3.5               // regulation 1.45 in radius, drawn 3.5x
     private var minBallPx: CGFloat { max(2.0, bounds.height * 0.004) }   // keep the ball visible at the far court
 
     // Swing shape — the paddle sweeps back and down into the windup, then makes
@@ -107,9 +107,17 @@ class PickleballScreensaverView: ScreenSaverView {
     private var ballSpin: CGFloat = 0
 
     // Rally state
-    private var rallyCount = 0
     private var lastFrameTime: TimeInterval = 0
     private var faultTimer: CGFloat = 0
+    private var rallyLostByLeft = false   // who lost the rally that just ended
+
+    // Score — singles side-out scoring: only the server can score; games to 11, win by 2
+    private var leftScore  = 0
+    private var rightScore = 0
+    private var leftServing = Bool.random()
+    private var leftGames  = 0
+    private var rightGames = 0
+    private var gameBannerTimer: CGFloat = 0
 
     // MARK: - Init
 
@@ -126,7 +134,7 @@ class PickleballScreensaverView: ScreenSaverView {
     private func setup() {
         animationTimeInterval = 1.0 / 60.0
         wantsLayer = true
-        resetRally(leftServes: true)
+        resetRally(leftServes: leftServing)
         fetchTodayEvents()
     }
 
@@ -187,9 +195,9 @@ class PickleballScreensaverView: ScreenSaverView {
             minY = min(minY, u.y); maxY = max(maxY, u.y)
         }
         let W = bounds.width, H = bounds.height
-        let focal = min(W * 0.94 / (maxX - minX), H * 0.72 / (maxY - minY))
-        let xOff = W / 2 - focal * (minX + maxX) / 2
-        let yOff = H * 0.60 - focal * (minY + maxY) / 2   // content centered above the overlays
+        let focal = min(W * 0.58 / (maxX - minX), H * 0.92 / (maxY - minY))
+        let xOff = W * 0.66 - focal * (minX + maxX) / 2   // court on the right; overlays own the left column
+        let yOff = H * 0.51 - focal * (minY + maxY) / 2
         fitCache = (bounds.size, focal, xOff, yOff)
         return (focal, xOff, yOff)
     }
@@ -209,10 +217,10 @@ class PickleballScreensaverView: ScreenSaverView {
 
     // MARK: - Launch math
     // Solve vy0 so the ball is at height (netHeight+margin) when it reaches the net (z=0.5).
-    // y(t) = vy0*t + 0.5*g*t² ; t = |0.5 - fromZ| / zSpd
-    private func launchVy(fromZ: CGFloat, zSpd: CGFloat, margin: CGFloat) -> CGFloat {
+    // y(t) = fromY + vy0*t + 0.5*g*t² ; t = |0.5 - fromZ| / zSpd
+    private func launchVy(fromZ: CGFloat, fromY: CGFloat, zSpd: CGFloat, margin: CGFloat) -> CGFloat {
         let tNet = max(0.0001, abs(0.5 - fromZ) / zSpd)
-        return (netHeight + margin - 0.5 * gravity * tNet * tNet) / tNet
+        return (netHeight + margin - fromY - 0.5 * gravity * tNet * tNet) / tNet
     }
 
     // MARK: - Reset
@@ -221,7 +229,7 @@ class PickleballScreensaverView: ScreenSaverView {
         let startZ = leftServes ? leftPlayerZ : rightPlayerZ
         let dir: CGFloat = leftServes ? 1 : -1
         ball = Vec3(x: CGFloat.random(in: -0.4...0.4), y: 0.02, z: startZ)
-        let vy0 = launchVy(fromZ: startZ, zSpd: zSpeed, margin: netHeight * 0.7)
+        let vy0 = launchVy(fromZ: startZ, fromY: ball.y, zSpd: zSpeed, margin: netHeight * 0.7)
         bVel = Vec3(x: CGFloat.random(in: -0.1...0.1), y: vy0, z: dir * zSpeed)
         leftPlayer  = PlayerState()
         rightPlayer = PlayerState()
@@ -240,6 +248,27 @@ class PickleballScreensaverView: ScreenSaverView {
         ballSpin = 0
     }
 
+    // Resolve the finished rally under side-out rules: the server keeps serving
+    // and scores when they win; losing the rally as the server is a side-out
+    // (serve passes, no point). Games to 11, win by 2.
+    private func scoreRally() {
+        let serverLost = (leftServing == rallyLostByLeft)
+        if serverLost {
+            leftServing.toggle()
+        } else {
+            if leftServing { leftScore += 1 } else { rightScore += 1 }
+            let server   = leftServing ? leftScore : rightScore
+            let receiver = leftServing ? rightScore : leftScore
+            if server >= 11 && server - receiver >= 2 {
+                if leftServing { leftGames += 1 } else { rightGames += 1 }
+                gameBannerTimer = 3.0
+                leftScore = 0; rightScore = 0
+                // Game winner (the server) serves first in the next game
+            }
+        }
+        resetRally(leftServes: leftServing)
+    }
+
     // MARK: - Animation loop
 
     override func animateOneFrame() {
@@ -247,12 +276,14 @@ class PickleballScreensaverView: ScreenSaverView {
         let dt: CGFloat = lastFrameTime == 0 ? 1/60.0 : min(CGFloat(now - lastFrameTime), 0.05)
         lastFrameTime = now
 
+        if gameBannerTimer > 0 { gameBannerTimer -= dt }
+
         if faultTimer > 0 {
             faultTimer -= dt
             // Let an in-progress swing finish (reads as a natural whiff)
             updateSwing(&leftPlayer,  side:  1, dt: dt)
             updateSwing(&rightPlayer, side: -1, dt: dt)
-            if faultTimer <= 0 { resetRally(leftServes: Bool.random()) }
+            if faultTimer <= 0 { scoreRally() }
             setNeedsDisplay(bounds)
             return
         }
@@ -286,16 +317,19 @@ class PickleballScreensaverView: ScreenSaverView {
         if (prevZ - 0.5) * (ball.z - 0.5) < 0 {
             let t = (0.5 - prevZ) / (ball.z - prevZ)
             let yAtNet = (ball.y - bVel.y * dt) + bVel.y * dt * t
-            if yAtNet < netTopY(ball.x) { faultTimer = 1.0 }
+            if yAtNet < netTopY(ball.x) {
+                faultTimer = 1.0
+                rallyLostByLeft = bVel.z > 0   // netted shot came off the left player
+            }
         }
 
         // Hit detection — left player (ball arriving at screen left)
         if bVel.z < 0 && ball.z <= leftPlayerZ {
             if abs(ball.x - contactX(leftPlayer, side: 1)) < hitWindow {
                 returnBall(fromZ: leftPlayerZ, goingFar: true, player: &leftPlayer)
-                rallyCount += 1
             } else {
                 faultTimer = 1.0
+                rallyLostByLeft = true         // failed return
             }
         }
 
@@ -303,9 +337,9 @@ class PickleballScreensaverView: ScreenSaverView {
         if bVel.z > 0 && ball.z >= rightPlayerZ {
             if abs(ball.x - contactX(rightPlayer, side: -1)) < hitWindow {
                 returnBall(fromZ: rightPlayerZ, goingFar: false, player: &rightPlayer)
-                rallyCount += 1
             } else {
                 faultTimer = 1.0
+                rallyLostByLeft = false        // failed return
             }
         }
 
@@ -353,7 +387,12 @@ class PickleballScreensaverView: ScreenSaverView {
         ball.z = fromZ
         ball.y = max(ball.y, 0.02)
         let dir: CGFloat = goingFar ? 1 : -1
-        let vy0 = launchVy(fromZ: fromZ, zSpd: zSpeed, margin: netHeight * CGFloat.random(in: 0.6...1.0))
+        // Mostly clean returns; occasionally one is netted, which ends the rally
+        // and drives the scoring (the clearance check attributes the fault)
+        let margin = CGFloat.random(in: 0...1) < 0.08
+            ? netHeight * CGFloat.random(in: -0.15 ... -0.03)
+            : netHeight * CGFloat.random(in: 0.6...1.0)
+        let vy0 = launchVy(fromZ: fromZ, fromY: ball.y, zSpd: zSpeed, margin: margin)
         bVel.y = vy0
         bVel.z = dir * zSpeed
         bVel.x = CGFloat.random(in: -0.18...0.18)
@@ -479,7 +518,7 @@ class PickleballScreensaverView: ScreenSaverView {
 
         drawClock(ctx: ctx, rect: rect)
         drawCalendar(ctx: ctx, rect: rect)
-        drawRallyCounter(ctx: ctx, rect: rect)
+        drawScoreboard(ctx: ctx, rect: rect)
     }
 
     // MARK: - Background
@@ -793,7 +832,7 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.restoreGState()
     }
 
-    // MARK: - Clock (bottom-left screen overlay)
+    // MARK: - Clock (top-left screen overlay)
 
     private func drawClock(ctx: CGContext, rect: NSRect) {
         let now = Date()
@@ -816,16 +855,16 @@ class PickleballScreensaverView: ScreenSaverView {
         let timeAS = NSAttributedString(string: timeFmt.string(from: now), attributes: timeAttrs)
         let dateAS = NSAttributedString(string: dateFmt.string(from: now), attributes: dateAttrs)
 
-        dateAS.draw(at: NSPoint(x: m, y: m))
-        timeAS.draw(at: NSPoint(x: m, y: m + dSize * 1.4))
+        timeAS.draw(at: NSPoint(x: m, y: rect.height - m - tSize))
+        dateAS.draw(at: NSPoint(x: m, y: rect.height - m - tSize - dSize * 1.5))
     }
 
-    // MARK: - Calendar (bottom-right screen overlay)
+    // MARK: - Calendar (upper-left screen overlay, below the clock)
 
     private func drawCalendar(ctx: CGContext, rect: NSRect) {
         let m    = rect.height * 0.05
-        let maxW = rect.width * 0.24
-        let x    = rect.width - m - maxW
+        let maxW = rect.width * 0.22
+        let x    = m
 
         let headerSize: CGFloat = rect.height * 0.022
         let rowSize:    CGFloat = rect.height * 0.018
@@ -839,8 +878,9 @@ class PickleballScreensaverView: ScreenSaverView {
             .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.55)
         ]
         let headerStr = NSAttributedString(string: "TODAY", attributes: headerAttrs)
-        // Cap the block below the court's near apron edge (~0.24 H with the 45° camera)
-        var curY = rect.height * 0.18
+        // Start below the clock/date block
+        let tSize = rect.height * 0.075
+        var curY = rect.height - m - tSize - tSize * 0.35 * 1.5 - headerSize * 2.4
         headerStr.draw(at: NSPoint(x: x, y: curY))
         curY -= headerSize * 0.4
 
@@ -881,17 +921,53 @@ class PickleballScreensaverView: ScreenSaverView {
         }
     }
 
-    // MARK: - Rally counter
+    // MARK: - Scoreboard (bottom-center; singles side-out scoring)
 
-    private func drawRallyCounter(ctx: CGContext, rect: NSRect) {
-        let label = "Rally  \(rallyCount)"
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 18, weight: .semibold),
-            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.45)
+    private func drawScoreboard(ctx: CGContext, rect: NSRect) {
+        let size = rect.height * 0.030
+        let y = rect.height * 0.035
+
+        let scoreAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: size, weight: .semibold),
+            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.60)
         ]
-        let str = NSAttributedString(string: label, attributes: attrs)
-        let sz = str.size()
-        str.draw(at: NSPoint(x: rect.midX - sz.width / 2, y: rect.height * 0.04))
+        let labelAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: size * 0.55, weight: .medium),
+            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.35)
+        ]
+
+        let score = NSMutableAttributedString()
+        score.append(NSAttributedString(string: "NEAR  ", attributes: labelAttrs))
+        score.append(NSAttributedString(string: "\(leftScore)  –  \(rightScore)", attributes: scoreAttrs))
+        score.append(NSAttributedString(string: "  FAR", attributes: labelAttrs))
+        let sz = score.size()
+        let x0 = rect.midX - sz.width / 2
+        score.draw(at: NSPoint(x: x0, y: y))
+
+        // Serve dot (ball-yellow) beside the serving side
+        let r = size * 0.16
+        let dotX = leftServing ? x0 - r * 3 : x0 + sz.width + r
+        ctx.setFillColor(CGColor(red: 0.96, green: 0.82, blue: 0.05, alpha: 0.85))
+        ctx.fillEllipse(in: CGRect(x: dotX, y: y + sz.height * 0.38 - r, width: r * 2, height: r * 2))
+
+        // Games tally under the score once a game has been won
+        if leftGames + rightGames > 0 {
+            let games = NSAttributedString(string: "games \(leftGames) – \(rightGames)", attributes: labelAttrs)
+            let gsz = games.size()
+            games.draw(at: NSPoint(x: rect.midX - gsz.width / 2, y: y - gsz.height * 1.15))
+        }
+
+        // Brief GAME banner when a game is won
+        if gameBannerTimer > 0 {
+            let pulse = 0.35 + 0.45 * abs(sin(gameBannerTimer * .pi * 1.5))
+            let bannerAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: size * 1.8, weight: .bold),
+                .foregroundColor: NSColor(calibratedRed: 0.96, green: 0.82, blue: 0.05, alpha: pulse)
+            ]
+            let banner = NSAttributedString(string: "GAME", attributes: bannerAttrs)
+            let bsz = banner.size()
+            banner.draw(at: NSPoint(x: rect.midX - bsz.width / 2, y: y + sz.height * 1.5))
+        }
     }
 
     // MARK: - Helpers
