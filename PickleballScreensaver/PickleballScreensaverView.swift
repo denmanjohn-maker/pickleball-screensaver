@@ -102,9 +102,27 @@ class PickleballScreensaverView: ScreenSaverView {
     private let blueBox    = CGColor(red: 0.13, green: 0.32, blue: 0.62, alpha: 1)
     private let whiteLine  = CGColor(red: 1, green: 1, blue: 1, alpha: 0.95)
 
-    // Calendar
+    // Calendar (refetched every 5 min and on EKEventStoreChanged)
     private let eventStore = EKEventStore()
     private var todayEvents: [EKEvent] = []
+    private var tomorrowEvents: [EKEvent] = []
+    private var lastEventFetch: TimeInterval = 0
+
+    // Weather (fetched by WeatherProvider from the animation loop)
+    private var weatherProvider: WeatherProvider?
+
+    // Rotating pickleball facts
+    private var tipsEnabled = true
+    private var tipOrder = Array(PickleballFacts.all.indices).shuffled()
+    private var tipIndex = 0
+    private var tipTimer: CGFloat = 0
+    private let tipPeriod: CGFloat = 30.0
+    private let tipFadeSecs: CGFloat = 0.5
+
+    // Shared formatters and accent — the overlays redraw every frame
+    private let timeFmt: DateFormatter = { let f = DateFormatter(); f.dateFormat = "h:mm a"; return f }()
+    private let dayFmt: DateFormatter = { let f = DateFormatter(); f.dateFormat = "EEEE, MMMM d"; return f }()
+    private let accentYellow = NSColor(calibratedRed: 0.96, green: 0.82, blue: 0.05, alpha: 1)
 
     // Ball spin
     private var ballSpin: CGFloat = 0
@@ -147,26 +165,46 @@ class PickleballScreensaverView: ScreenSaverView {
         animationTimeInterval = 1.0 / 60.0
         wantsLayer = true
         resetRally(leftServes: leftServing)
-        fetchTodayEvents()
-        // File loading stays out of the tiny System Settings preview
+        fetchUpcomingEvents()
+        NotificationCenter.default.addObserver(self, selector: #selector(eventStoreChanged),
+                                               name: .EKEventStoreChanged, object: eventStore)
+        tipsEnabled = TipSettings.load().enabled
+        // File loading and networking stay out of the tiny System Settings preview
         if !isPreview {
             let photoSettings = PhotoSettings.load()
             if photoSettings.source != .off {
                 photoController = PhotoOverlayController(settings: photoSettings)
             }
+            let weatherSettings = WeatherSettings.load()
+            if weatherSettings.enabled && weatherSettings.hasLocation {
+                weatherProvider = WeatherProvider(settings: weatherSettings)
+            }
         }
     }
 
-    private func fetchTodayEvents() {
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func eventStoreChanged() {
+        fetchUpcomingEvents()
+    }
+
+    private func fetchUpcomingEvents() {
+        lastEventFetch = Date().timeIntervalSinceReferenceDate
         let request = { [weak self] in
             guard let self else { return }
             let cal = Calendar.current
             let start = cal.startOfDay(for: Date())
-            let end   = cal.date(byAdding: .day, value: 1, to: start)!
-            let pred  = self.eventStore.predicateForEvents(withStart: start, end: end, calendars: nil)
+            let tomorrowStart = cal.date(byAdding: .day, value: 1, to: start)!
+            let end = cal.date(byAdding: .day, value: 2, to: start)!
+            let pred = self.eventStore.predicateForEvents(withStart: start, end: end, calendars: nil)
             let events = self.eventStore.events(matching: pred)
                 .sorted { $0.startDate < $1.startDate }
-            DispatchQueue.main.async { self.todayEvents = events }
+            DispatchQueue.main.async {
+                self.todayEvents = events.filter { $0.startDate < tomorrowStart }
+                self.tomorrowEvents = events.filter { $0.startDate >= tomorrowStart }
+            }
         }
         if EKEventStore.authorizationStatus(for: .event) == .fullAccess {
             request()
@@ -296,6 +334,11 @@ class PickleballScreensaverView: ScreenSaverView {
         lastFrameTime = now
 
         updatePhotoOverlay(dt: dt)   // before the faultTimer early return
+
+        // Overlay content keeps updating even during the fault pause
+        weatherProvider?.updateIfNeeded()
+        updateTip(dt: dt)
+        if now - lastEventFetch > 300 { fetchUpcomingEvents() }
 
         if gameBannerTimer > 0 { gameBannerTimer -= dt }
 
@@ -538,8 +581,14 @@ class PickleballScreensaverView: ScreenSaverView {
         drawNet(ctx: ctx)
         for s in sprites.filter({ $0.wz <= 0.5 }).sorted(by: { $0.depth > $1.depth }) { s.draw() }
 
-        drawClock(ctx: ctx, rect: rect)
-        drawCalendar(ctx: ctx, rect: rect)
+        // Widget-style left rail: clock hero, then agenda / weather cards
+        // flowing down, with the facts card pinned to the bottom margin.
+        let rail = railMetrics(rect)
+        var railY = rect.height * 0.95
+        railY = drawClock(ctx: ctx, rect: rect, rail: rail, top: railY) - rail.gap
+        railY = drawAgenda(ctx: ctx, rect: rect, rail: rail, top: railY) - rail.gap
+        _ = drawWeather(ctx: ctx, rect: rect, rail: rail, top: railY)
+        drawTip(ctx: ctx, rect: rect, rail: rail)
         drawScoreboard(ctx: ctx, rect: rect)
     }
 
@@ -858,109 +907,333 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.restoreGState()
     }
 
-    // MARK: - Clock (top-left screen overlay)
+    // MARK: - Overlay style (widget-style left rail)
 
-    private func drawClock(ctx: CGContext, rect: NSRect) {
-        let now = Date()
-        let timeFmt = DateFormatter(); timeFmt.dateFormat = "h:mm a"
-        let dateFmt = DateFormatter(); dateFmt.dateFormat = "EEEE, MMMM d"
+    private struct Rail { var x, width, pad, corner, gap: CGFloat }
 
-        let m = rect.height * 0.05
-        let tSize = rect.height * 0.075
-        let dSize = tSize * 0.35
-
-        let timeAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: tSize, weight: .thin),
-            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.90)
-        ]
-        let dateAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: dSize, weight: .light),
-            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.65)
-        ]
-
-        let timeAS = NSAttributedString(string: timeFmt.string(from: now), attributes: timeAttrs)
-        let dateAS = NSAttributedString(string: dateFmt.string(from: now), attributes: dateAttrs)
-
-        timeAS.draw(at: NSPoint(x: m, y: rect.height - m - tSize))
-        dateAS.draw(at: NSPoint(x: m, y: rect.height - m - tSize - dSize * 1.5))
+    private func railMetrics(_ rect: NSRect) -> Rail {
+        Rail(x: rect.height * 0.05,
+             width: min(rect.width * 0.24, rect.height * 0.55),
+             pad: rect.height * 0.018,
+             corner: rect.height * 0.022,
+             gap: rect.height * 0.02)
     }
 
-    // MARK: - Calendar (upper-left screen overlay, below the clock)
+    // SF Rounded variant of the system font; falls back to plain SF
+    private func roundedFont(_ size: CGFloat, _ weight: NSFont.Weight, monoDigits: Bool = false) -> NSFont {
+        let base = monoDigits ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
+                              : NSFont.systemFont(ofSize: size, weight: weight)
+        guard let desc = base.fontDescriptor.withDesign(.rounded),
+              let f = NSFont(descriptor: desc, size: size) else { return base }
+        return f
+    }
 
-    private func drawCalendar(ctx: CGContext, rect: NSRect) {
-        let m    = rect.height * 0.05
-        let maxW = rect.width * 0.22
-        let x    = m
-
-        let headerSize: CGFloat = rect.height * 0.022
-        let rowSize:    CGFloat = rect.height * 0.018
-        let lineH       = rowSize * 1.45
-
-        let timeFmt = DateFormatter(); timeFmt.dateFormat = "h:mm a"
-
-        // "TODAY" header at the top of the block
-        let headerAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: headerSize, weight: .semibold),
-            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.55)
+    // Alpha tiers: 0.95 primary, 0.60 secondary, 0.40 tertiary
+    private func textAttrs(_ size: CGFloat, _ weight: NSFont.Weight, alpha: CGFloat,
+                           color: NSColor? = nil, monoDigits: Bool = false,
+                           kern: CGFloat = 0) -> [NSAttributedString.Key: Any] {
+        var attrs: [NSAttributedString.Key: Any] = [
+            .font: roundedFont(size, weight, monoDigits: monoDigits),
+            .foregroundColor: (color ?? NSColor.white).withAlphaComponent(alpha),
         ]
-        let headerStr = NSAttributedString(string: "TODAY", attributes: headerAttrs)
-        // Start below the clock/date block
+        if kern != 0 { attrs[.kern] = kern }
+        return attrs
+    }
+
+    // Small ALL-CAPS section header with wide tracking
+    private func kickerAttrs(_ size: CGFloat, color: NSColor? = nil,
+                             alpha: CGFloat = 0.40) -> [NSAttributedString.Key: Any] {
+        textAttrs(size, .semibold, alpha: alpha, color: color, kern: size * 0.14)
+    }
+
+    // Translucent rounded "glass" panel; returns the padded content rect
+    @discardableResult
+    private func drawCard(_ ctx: CGContext, _ rail: Rail, top: CGFloat, height: CGFloat) -> CGRect {
+        let rect = CGRect(x: rail.x, y: top - height, width: rail.width, height: height)
+        let path = CGPath(roundedRect: rect, cornerWidth: rail.corner, cornerHeight: rail.corner,
+                          transform: nil)
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -rail.pad * 0.3), blur: rail.pad,
+                      color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.30))
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.35))
+        ctx.addPath(path); ctx.fillPath()
+        ctx.restoreGState()
+        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.12))
+        ctx.setLineWidth(1)
+        ctx.addPath(path); ctx.strokePath()
+        return rect.insetBy(dx: rail.pad, dy: rail.pad)
+    }
+
+    // Tinted SF Symbol anchored at its bottom-left corner; returns the drawn rect
+    @discardableResult
+    private func drawSymbol(_ name: String, at origin: CGPoint, size: CGFloat,
+                            alpha: CGFloat, color: NSColor = .white) -> CGRect {
+        guard let base = NSImage(systemSymbolName: name, accessibilityDescription: nil) else {
+            return CGRect(origin: origin, size: .zero)
+        }
+        let config = NSImage.SymbolConfiguration(pointSize: size, weight: .medium)
+            .applying(.init(paletteColors: [color.withAlphaComponent(alpha)]))
+        let img = base.withSymbolConfiguration(config) ?? base
+        let scale = img.size.height > 0 ? size / img.size.height : 1
+        let rect = CGRect(x: origin.x, y: origin.y, width: img.size.width * scale, height: size)
+        img.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+        return rect
+    }
+
+    // MARK: - Clock (rail hero, no card)
+
+    private func drawClock(ctx: CGContext, rect: NSRect, rail: Rail, top: CGFloat) -> CGFloat {
+        let now = Date()
         let tSize = rect.height * 0.075
-        var curY = rect.height - m - tSize - tSize * 0.35 * 1.5 - headerSize * 2.4
-        headerStr.draw(at: NSPoint(x: x, y: curY))
-        curY -= headerSize * 0.4
+        let dSize = rect.height * 0.026
 
-        // Divider line
-        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.20))
-        ctx.setLineWidth(0.8)
-        line(ctx, from: CGPoint(x: x, y: curY), to: CGPoint(x: x + maxW, y: curY))
-        curY -= rowSize * 0.6
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -tSize * 0.03), blur: tSize * 0.12,
+                      color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.60))
+        let timeY = top - tSize * 1.05
+        NSAttributedString(string: timeFmt.string(from: now),
+                           attributes: textAttrs(tSize, .thin, alpha: 0.95, monoDigits: true))
+            .draw(at: NSPoint(x: rail.x, y: timeY))
+        let dateY = timeY - dSize * 1.5
+        NSAttributedString(string: dayFmt.string(from: now),
+                           attributes: textAttrs(dSize, .light, alpha: 0.60))
+            .draw(at: NSPoint(x: rail.x, y: dateY))
+        ctx.restoreGState()
+        return dateY - dSize * 0.2
+    }
 
-        let rowAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: rowSize, weight: .regular),
-            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.85)
-        ]
-        let timeAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: rowSize * 0.80, weight: .light),
-            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.50)
-        ]
+    // MARK: - Agenda card (today + tomorrow)
 
-        if todayEvents.isEmpty {
-            let none = NSAttributedString(string: "No events", attributes: timeAttrs)
-            none.draw(at: NSPoint(x: x, y: curY - lineH))
+    private func drawAgenda(ctx: CGContext, rect: NSRect, rail: Rail, top: CGFloat) -> CGFloat {
+        let kSize = rect.height * 0.0135
+        let kickerH = kSize * 1.6
+        let rowSize = rect.height * 0.0165
+        let lineH = rowSize * 1.6
+        let sectionGap = rail.pad * 0.7
+
+        let today = Array(todayEvents.prefix(4))
+        let tomorrow = Array(tomorrowEvents.prefix(3))
+
+        var contentH = kickerH + lineH * CGFloat(max(1, today.count))
+        if !tomorrow.isEmpty { contentH += sectionGap + kickerH + lineH * CGFloat(tomorrow.count) }
+        let content = drawCard(ctx, rail, top: top, height: contentH + rail.pad * 2)
+
+        let now = Date()
+        // First event still in progress or upcoming gets the accent highlight
+        let nextEvent = today.first { !$0.isAllDay && $0.endDate > now }
+
+        var y = content.maxY - kickerH
+        let glyph = drawSymbol("calendar", at: CGPoint(x: content.minX, y: y + kSize * 0.05),
+                               size: kSize * 1.15, alpha: 0.40)
+        NSAttributedString(string: "TODAY", attributes: kickerAttrs(kSize))
+            .draw(at: NSPoint(x: glyph.maxX + kSize * 0.6, y: y))
+
+        if today.isEmpty {
+            y -= lineH
+            NSAttributedString(string: "No events", attributes: textAttrs(rowSize, .regular, alpha: 0.40))
+                .draw(at: NSPoint(x: content.minX, y: y))
         } else {
-            for event in todayEvents {
-                curY -= lineH
-                if curY < m { break }
-
-                // Time label
-                let timeStr = event.isAllDay ? "All day" : timeFmt.string(from: event.startDate)
-                NSAttributedString(string: timeStr, attributes: timeAttrs)
-                    .draw(at: NSPoint(x: x, y: curY))
-
-                // Event title (truncated to fit box width)
-                let titleX = x + rowSize * 4.5
-                let titleAS = NSAttributedString(string: event.title ?? "", attributes: rowAttrs)
-                let titleRect = CGRect(x: titleX, y: curY, width: maxW - rowSize * 4.5, height: lineH)
-                titleAS.draw(with: titleRect, options: .truncatesLastVisibleLine)
+            for event in today {
+                y -= lineH
+                drawEventRow(event, atY: y, in: content, rowSize: rowSize, lineH: lineH,
+                             highlighted: event === nextEvent,
+                             dimmed: !event.isAllDay && event.endDate <= now)
             }
+        }
+
+        if !tomorrow.isEmpty {
+            y -= sectionGap + kickerH
+            NSAttributedString(string: "TOMORROW", attributes: kickerAttrs(kSize))
+                .draw(at: NSPoint(x: content.minX, y: y))
+            for event in tomorrow {
+                y -= lineH
+                drawEventRow(event, atY: y, in: content, rowSize: rowSize, lineH: lineH,
+                             highlighted: false, dimmed: false)
+            }
+        }
+        return content.minY - rail.pad   // card bottom
+    }
+
+    private func drawEventRow(_ event: EKEvent, atY y: CGFloat, in content: CGRect,
+                              rowSize: CGFloat, lineH: CGFloat, highlighted: Bool, dimmed: Bool) {
+        let timeStr = event.isAllDay ? "All day" : timeFmt.string(from: event.startDate)
+        NSAttributedString(string: timeStr,
+                           attributes: textAttrs(rowSize * 0.82, .medium,
+                                                 alpha: highlighted ? 0.95 : (dimmed ? 0.30 : 0.50),
+                                                 color: highlighted ? accentYellow : nil,
+                                                 monoDigits: true))
+            .draw(at: NSPoint(x: content.minX, y: y + rowSize * 0.09))
+
+        let titleX = content.minX + rowSize * 4.6
+        NSAttributedString(string: event.title ?? "",
+                           attributes: textAttrs(rowSize, highlighted ? .semibold : .regular,
+                                                 alpha: dimmed ? 0.35 : (highlighted ? 0.95 : 0.80)))
+            .draw(with: CGRect(x: titleX, y: y, width: content.maxX - titleX, height: lineH),
+                  options: .truncatesLastVisibleLine)
+    }
+
+    // MARK: - Weather card
+
+    private func drawWeather(ctx: CGContext, rect: NSRect, rail: Rail, top: CGFloat) -> CGFloat {
+        guard let snap = weatherProvider?.snapshot else { return top }
+        let kSize = rect.height * 0.0135
+        let kickerH = kSize * 1.6
+        let bigSize = rect.height * 0.042
+        let rowSize = rect.height * 0.0165
+        let rowH = rowSize * 1.6
+        let badgeH = rect.height * 0.026
+
+        let rowCount: CGFloat = snap.tomorrowMax != nil ? 4 : 3
+        let contentH = kickerH + bigSize * 1.35 + rowH * rowCount + rail.pad * 0.8 + badgeH
+        let content = drawCard(ctx, rail, top: top, height: contentH + rail.pad * 2)
+        let secondary = textAttrs(rowSize, .regular, alpha: 0.60)
+
+        var y = content.maxY - kickerH
+        let place = weatherProvider?.settings.locationName.uppercased() ?? ""
+        NSAttributedString(string: place.isEmpty ? "WEATHER" : "WEATHER · \(place)",
+                           attributes: kickerAttrs(kSize))
+            .draw(at: NSPoint(x: content.minX, y: y))
+
+        // Current temperature + condition
+        y -= bigSize * 1.35
+        let sym = drawSymbol(WMOCode.symbol(snap.weatherCode),
+                             at: CGPoint(x: content.minX, y: y + bigSize * 0.12),
+                             size: bigSize * 0.9, alpha: 0.90)
+        let tempAS = NSAttributedString(string: snap.tempText(snap.temperature),
+                                        attributes: textAttrs(bigSize, .semibold, alpha: 0.95,
+                                                              monoDigits: true))
+        let tempX = sym.maxX + bigSize * 0.25
+        tempAS.draw(at: NSPoint(x: tempX, y: y))
+        NSAttributedString(string: WMOCode.label(snap.weatherCode), attributes: secondary)
+            .draw(at: NSPoint(x: tempX + tempAS.size().width + bigSize * 0.3, y: y + bigSize * 0.12))
+
+        // Feels-like + wind
+        y -= rowH
+        NSAttributedString(string: "Feels \(snap.tempText(snap.apparentTemperature))  ·  Wind \(snap.windText)",
+                           attributes: secondary)
+            .draw(at: NSPoint(x: content.minX, y: y))
+
+        // Today's range + rain chance
+        y -= rowH
+        NSAttributedString(string: "H \(snap.tempText(snap.todayMax))  L \(snap.tempText(snap.todayMin))"
+                                 + "  ·  Rain \(snap.todayPrecipProb)%",
+                           attributes: secondary)
+            .draw(at: NSPoint(x: content.minX, y: y))
+
+        // Sunrise / sunset
+        y -= rowH
+        var sx = content.minX
+        sx = drawSymbol("sunrise.fill", at: CGPoint(x: sx, y: y + rowSize * 0.05),
+                        size: rowSize * 1.05, alpha: 0.60).maxX + rowSize * 0.35
+        let riseAS = NSAttributedString(string: snap.sunrise,
+                                        attributes: textAttrs(rowSize, .regular, alpha: 0.60,
+                                                              monoDigits: true))
+        riseAS.draw(at: NSPoint(x: sx, y: y))
+        sx += riseAS.size().width + rowSize * 1.1
+        sx = drawSymbol("sunset.fill", at: CGPoint(x: sx, y: y + rowSize * 0.05),
+                        size: rowSize * 1.05, alpha: 0.60).maxX + rowSize * 0.35
+        NSAttributedString(string: snap.sunset,
+                           attributes: textAttrs(rowSize, .regular, alpha: 0.60, monoDigits: true))
+            .draw(at: NSPoint(x: sx, y: y))
+
+        // Compact tomorrow line
+        if let tMax = snap.tomorrowMax, let tMin = snap.tomorrowMin {
+            y -= rowH
+            var s = "Tomorrow \(snap.tempText(tMax)) / \(snap.tempText(tMin))"
+            if let p = snap.tomorrowPrecipProb { s += "  ·  Rain \(p)%" }
+            NSAttributedString(string: s, attributes: textAttrs(rowSize, .regular, alpha: 0.40))
+                .draw(at: NSPoint(x: content.minX, y: y))
+        }
+
+        // Play badge pill
+        y -= rail.pad * 0.8 + badgeH
+        drawPlayBadge(ctx, verdict: snap.playVerdict, at: CGPoint(x: content.minX, y: y),
+                      height: badgeH, textSize: kSize)
+
+        return content.minY - rail.pad   // card bottom
+    }
+
+    private func drawPlayBadge(_ ctx: CGContext, verdict: WeatherSnapshot.PlayVerdict,
+                               at origin: CGPoint, height: CGFloat, textSize: CGFloat) {
+        let good = verdict != .indoor
+        let color = good ? accentYellow : NSColor.white
+        let label = NSAttributedString(string: verdict.label,
+                                       attributes: textAttrs(textSize, .bold, alpha: 0.95,
+                                                             color: color, kern: textSize * 0.10))
+        let sz = label.size()
+        let padX = height * 0.55
+        let pill = CGRect(x: origin.x, y: origin.y, width: sz.width + padX * 2, height: height)
+        let path = CGPath(roundedRect: pill, cornerWidth: height / 2, cornerHeight: height / 2,
+                          transform: nil)
+        ctx.setFillColor(color.withAlphaComponent(good ? 0.16 : 0.08).cgColor)
+        ctx.addPath(path); ctx.fillPath()
+        ctx.setStrokeColor(color.withAlphaComponent(0.40).cgColor)
+        ctx.setLineWidth(1)
+        ctx.addPath(path); ctx.strokePath()
+        label.draw(at: NSPoint(x: pill.minX + padX, y: pill.minY + (height - sz.height) / 2))
+    }
+
+    // MARK: - Pickleball fact card (bottom of the rail)
+
+    private func updateTip(dt: CGFloat) {
+        guard tipsEnabled else { return }
+        tipTimer += dt
+        if tipTimer >= tipPeriod {
+            tipTimer = 0
+            tipIndex += 1
+            if tipIndex >= tipOrder.count { tipOrder.shuffle(); tipIndex = 0 }
         }
     }
 
-    // MARK: - Scoreboard (bottom-center; singles side-out scoring)
+    // 1 while showing; eases to 0 at the swap boundaries
+    private var tipAlpha: CGFloat {
+        if tipTimer < tipFadeSecs { return tipTimer / tipFadeSecs }
+        if tipTimer > tipPeriod - tipFadeSecs { return (tipPeriod - tipTimer) / tipFadeSecs }
+        return 1
+    }
+
+    private func drawTip(ctx: CGContext, rect: NSRect, rail: Rail) {
+        guard tipsEnabled else { return }
+        let alpha = tipAlpha
+        guard alpha > 0 else { return }
+        let fact = PickleballFacts.all[tipOrder[tipIndex]]
+
+        let kSize = rect.height * 0.0135
+        let kickerH = kSize * 1.6
+        let bodySize = rect.height * 0.016
+        let bodyAttrs = textAttrs(bodySize, .regular, alpha: 0.85)
+        let maxW = rail.width - rail.pad * 2
+        let bodyAS = NSAttributedString(string: fact, attributes: bodyAttrs)
+        let bodyH = ceil(bodyAS.boundingRect(with: NSSize(width: maxW, height: 1000),
+                                             options: .usesLineFragmentOrigin).height)
+        let contentH = kickerH + kSize * 0.5 + bodyH
+        let cardBottom = rect.height * 0.05
+
+        // Card and text fade together across the 30 s rotation
+        ctx.saveGState()
+        ctx.setAlpha(alpha)
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        let content = drawCard(ctx, rail, top: cardBottom + contentH + rail.pad * 2,
+                               height: contentH + rail.pad * 2)
+        let y = content.maxY - kickerH
+        let bulb = drawSymbol("lightbulb.fill", at: CGPoint(x: content.minX, y: y + kSize * 0.05),
+                              size: kSize * 1.15, alpha: 0.85, color: accentYellow)
+        NSAttributedString(string: "PICKLEBALL FACT", attributes: kickerAttrs(kSize))
+            .draw(at: NSPoint(x: bulb.maxX + kSize * 0.6, y: y))
+        bodyAS.draw(with: CGRect(x: content.minX, y: content.minY, width: maxW, height: bodyH),
+                    options: .usesLineFragmentOrigin)
+        ctx.endTransparencyLayer()
+        ctx.restoreGState()
+    }
+
+    // MARK: - Scoreboard (bottom-center glass pill; singles side-out scoring)
 
     private func drawScoreboard(ctx: CGContext, rect: NSRect) {
         let size = rect.height * 0.030
         let y = rect.height * 0.035
 
-        let scoreAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: size, weight: .semibold),
-            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.60)
-        ]
-        let labelAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: size * 0.55, weight: .medium),
-            .foregroundColor: NSColor(calibratedWhite: 1, alpha: 0.35)
-        ]
+        let scoreAttrs = textAttrs(size, .semibold, alpha: 0.90, monoDigits: true)
+        let labelAttrs = textAttrs(size * 0.52, .semibold, alpha: 0.45, kern: size * 0.05)
 
         let score = NSMutableAttributedString()
         score.append(NSAttributedString(string: "NEAR  ", attributes: labelAttrs))
@@ -968,31 +1241,43 @@ class PickleballScreensaverView: ScreenSaverView {
         score.append(NSAttributedString(string: "  FAR", attributes: labelAttrs))
         let sz = score.size()
         let x0 = rect.midX - sz.width / 2
+
+        // Glass pill behind the score line, matching the rail cards
+        let padX = size * 0.9, padY = size * 0.42
+        let pill = CGRect(x: x0 - padX, y: y - padY, width: sz.width + padX * 2, height: sz.height + padY * 2)
+        let path = CGPath(roundedRect: pill, cornerWidth: pill.height / 2, cornerHeight: pill.height / 2,
+                          transform: nil)
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.35))
+        ctx.addPath(path); ctx.fillPath()
+        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.12))
+        ctx.setLineWidth(1)
+        ctx.addPath(path); ctx.strokePath()
+
         score.draw(at: NSPoint(x: x0, y: y))
 
         // Serve dot (ball-yellow) beside the serving side
         let r = size * 0.16
         let dotX = leftServing ? x0 - r * 3 : x0 + sz.width + r
-        ctx.setFillColor(CGColor(red: 0.96, green: 0.82, blue: 0.05, alpha: 0.85))
+        ctx.setFillColor(accentYellow.withAlphaComponent(0.85).cgColor)
         ctx.fillEllipse(in: CGRect(x: dotX, y: y + sz.height * 0.38 - r, width: r * 2, height: r * 2))
 
-        // Games tally under the score once a game has been won
+        // Games tally above the pill once a game has been won
         if leftGames + rightGames > 0 {
-            let games = NSAttributedString(string: "games \(leftGames) – \(rightGames)", attributes: labelAttrs)
+            let games = NSAttributedString(string: "GAMES \(leftGames) – \(rightGames)",
+                                           attributes: textAttrs(size * 0.45, .semibold, alpha: 0.40,
+                                                                 kern: size * 0.04))
             let gsz = games.size()
-            games.draw(at: NSPoint(x: rect.midX - gsz.width / 2, y: y - gsz.height * 1.15))
+            games.draw(at: NSPoint(x: rect.midX - gsz.width / 2, y: pill.maxY + gsz.height * 0.35))
         }
 
         // Brief GAME banner when a game is won
         if gameBannerTimer > 0 {
             let pulse = 0.35 + 0.45 * abs(sin(gameBannerTimer * .pi * 1.5))
-            let bannerAttrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: size * 1.8, weight: .bold),
-                .foregroundColor: NSColor(calibratedRed: 0.96, green: 0.82, blue: 0.05, alpha: pulse)
-            ]
-            let banner = NSAttributedString(string: "GAME", attributes: bannerAttrs)
+            let banner = NSAttributedString(string: "GAME",
+                                            attributes: textAttrs(size * 1.8, .bold, alpha: pulse,
+                                                                  color: accentYellow))
             let bsz = banner.size()
-            banner.draw(at: NSPoint(x: rect.midX - bsz.width / 2, y: y + sz.height * 1.5))
+            banner.draw(at: NSPoint(x: rect.midX - bsz.width / 2, y: pill.maxY + sz.height * 0.9))
         }
     }
 
@@ -1038,10 +1323,10 @@ class PickleballScreensaverView: ScreenSaverView {
             (-1, 0, 0, kitchenNearZ), (0, 1, 0, kitchenNearZ),
             (-1, 0, kitchenFarZ, 1), (0, 1, kitchenFarZ, 1),
         ].shuffled()
-        let overlays = CGRect(x: 0, y: bounds.height * 0.5,
-                              width: bounds.width * 0.30, height: bounds.height * 0.5)
-        // Prefer the first shuffled quadrant that doesn't touch the clock/
-        // calendar column; fall back to the first if all four do (rare).
+        let overlays = CGRect(x: 0, y: 0,
+                              width: bounds.width * 0.30, height: bounds.height)
+        // Prefer the first shuffled quadrant that doesn't touch the left rail
+        // column; fall back to the first if all four do (rare).
         let chosen = quads.first { !quadBoundingRect($0).intersects(overlays) } ?? quads[0]
         let corners = quadCorners(chosen, insetFrac: 0.08)
         photoQuadCorners = corners
