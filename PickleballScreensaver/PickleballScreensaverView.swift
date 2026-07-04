@@ -602,9 +602,36 @@ class PickleballScreensaverView: ScreenSaverView {
 
     // MARK: - Background
 
+    // Patterned wallpaper, loaded like the paddle sprite so the offscreen
+    // preview harness finds it too
+    private static let backgroundImage: CGImage? = {
+        let candidates: [URL?] = [
+            Bundle(for: PickleballScreensaverView.self).url(forResource: "background", withExtension: "png"),
+            Bundle.main.url(forResource: "background", withExtension: "png"),
+            URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
+                .appendingPathComponent("background.png"),
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent("PickleballScreensaver/Resources/background.png"),
+        ]
+        for c in candidates {
+            if let c, let img = NSImage(contentsOf: c),
+               let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) { return cg }
+        }
+        return nil
+    }()
+
+    // The wallpaper is aspect-fill rescaled once per view size, then blitted
+    // every frame (rescaling the full-resolution source at 60 fps would be slow)
+    private var bgScaledCache: (size: CGSize, image: CGImage)?
+
     private func drawBackground(ctx: CGContext, rect: NSRect) {
         ctx.setFillColor(CGColor(red: 0.05, green: 0.09, blue: 0.10, alpha: 1))
         ctx.fill(rect)
+        if let img = scaledBackground() {
+            ctx.draw(img, in: bounds)
+            return
+        }
+        // Fallback wash if the wallpaper asset is missing
         let colors = [CGColor(red: 0.10, green: 0.22, blue: 0.20, alpha: 0.55),
                       CGColor(red: 0.05, green: 0.09, blue: 0.10, alpha: 0)] as CFArray
         let locs: [CGFloat] = [0, 1]
@@ -615,6 +642,28 @@ class PickleballScreensaverView: ScreenSaverView {
                 endCenter:   CGPoint(x: rect.midX, y: rect.height * 0.60),
                 endRadius: max(rect.width, rect.height) * 0.7, options: [])
         }
+    }
+
+    private func scaledBackground() -> CGImage? {
+        if let c = bgScaledCache, c.size == bounds.size { return c.image }
+        guard let src = Self.backgroundImage, bounds.width > 0, bounds.height > 0 else { return nil }
+        let pxScale = window?.backingScaleFactor ?? 2
+        let pxW = Int(bounds.width * pxScale), pxH = Int(bounds.height * pxScale)
+        guard let bctx = CGContext(data: nil, width: pxW, height: pxH,
+                                   bitsPerComponent: 8, bytesPerRow: 0,
+                                   space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        // Aspect-fill: cover the view, cropping the overflowing dimension
+        let iw = CGFloat(src.width), ih = CGFloat(src.height)
+        let scale = max(CGFloat(pxW) / iw, CGFloat(pxH) / ih)
+        let w = iw * scale, h = ih * scale
+        bctx.interpolationQuality = .high
+        bctx.draw(src, in: CGRect(x: (CGFloat(pxW) - w) / 2, y: (CGFloat(pxH) - h) / 2,
+                                  width: w, height: h))
+        guard let img = bctx.makeImage() else { return nil }
+        bgScaledCache = (bounds.size, img)
+        return img
     }
 
     // MARK: - Court
