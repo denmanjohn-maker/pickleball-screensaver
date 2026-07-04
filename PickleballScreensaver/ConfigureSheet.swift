@@ -51,9 +51,12 @@ struct PhotoSettings {
 /// The owning view must keep this controller alive for the sheet's lifetime,
 /// and dismissal must go through sheetParent.endSheet — System Settings hangs
 /// on close()/stopModal.
-final class ConfigureSheetController: NSObject {
+final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
 
     private var settings = PhotoSettings.load()
+    private var weatherSettings = WeatherSettings.load()
+    private var tipSettings = TipSettings.load()
+    private var pendingPlace: GeocodedPlace?
 
     private let intervalPopup = NSPopUpButton()
     private let offRadio    = NSButton(radioButtonWithTitle: "Off", target: nil, action: nil)
@@ -64,6 +67,14 @@ final class ConfigureSheetController: NSObject {
     private let folderLabel = NSTextField(labelWithString: "No folder selected")
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
 
+    private let weatherCheck = NSButton(checkboxWithTitle: "Show weather", target: nil, action: nil)
+    private let cityField = NSTextField(string: "")
+    private let lookupButton = NSButton(title: "Look Up", target: nil, action: nil)
+    private let locationLabel = NSTextField(labelWithString: "No location set")
+    private let fahrenheitRadio = NSButton(radioButtonWithTitle: "°F", target: nil, action: nil)
+    private let celsiusRadio    = NSButton(radioButtonWithTitle: "°C", target: nil, action: nil)
+    private let tipsCheck = NSButton(checkboxWithTitle: "Show pickleball tips & facts", target: nil, action: nil)
+
     private static let intervalTitles = ["15 seconds", "30 seconds", "1 minute", "5 minutes", "10 minutes"]
 
     private(set) lazy var window: NSWindow = buildWindow()
@@ -73,12 +84,23 @@ final class ConfigureSheetController: NSObject {
     func refresh() {
         _ = window
         settings = PhotoSettings.load()
+        weatherSettings = WeatherSettings.load()
+        tipSettings = TipSettings.load()
+        pendingPlace = nil
         if let idx = PhotoSettings.intervalChoices.firstIndex(of: settings.intervalSeconds) {
             intervalPopup.selectItem(at: idx)
         }
         offRadio.state = settings.source == .off ? .on : .off
         syncRadio.state = settings.source == .photoSync ? .on : .off
         folderRadio.state = settings.source == .folder ? .on : .off
+        weatherCheck.state = weatherSettings.enabled ? .on : .off
+        cityField.stringValue = weatherSettings.locationName
+        locationLabel.stringValue = weatherSettings.hasLocation
+            ? weatherSettings.locationName
+            : "No location set — enter a city and click Look Up."
+        fahrenheitRadio.state = weatherSettings.useFahrenheit ? .on : .off
+        celsiusRadio.state = weatherSettings.useFahrenheit ? .off : .on
+        tipsCheck.state = tipSettings.enabled ? .on : .off
         updateFolderLabel()
         refreshPhotoSyncStatus()
         updateEnabledState()
@@ -105,6 +127,20 @@ final class ConfigureSheetController: NSObject {
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
 
+        weatherCheck.target = self
+        weatherCheck.action = #selector(weatherToggled(_:))
+        for b in [fahrenheitRadio, celsiusRadio] {
+            b.target = self
+            b.action = #selector(unitChanged(_:))
+        }
+        lookupButton.target = self
+        lookupButton.action = #selector(lookupCity(_:))
+        cityField.placeholderString = "City, e.g. Austin"
+        cityField.delegate = self
+        locationLabel.textColor = .secondaryLabelColor
+        locationLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        locationLabel.lineBreakMode = .byTruncatingTail
+
         let okButton = NSButton(title: "OK", target: self, action: #selector(ok(_:)))
         okButton.keyEquivalent = "\r"
         let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancel(_:)))
@@ -112,6 +148,8 @@ final class ConfigureSheetController: NSObject {
 
         let sourceHeader = NSTextField(labelWithString: "Photo source:")
         sourceHeader.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
+        let extrasHeader = NSTextField(labelWithString: "Overlays:")
+        extrasHeader.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
 
         let stack = NSStackView(views: [
             hstack([NSTextField(labelWithString: "Show a photo every:"), intervalPopup]),
@@ -122,6 +160,12 @@ final class ConfigureSheetController: NSObject {
             folderRadio,
             indent(hstack([folderButton, folderLabel])),
             statusLabel,
+            extrasHeader,
+            weatherCheck,
+            indent(hstack([cityField, lookupButton])),
+            indent(locationLabel),
+            indent(hstack([NSTextField(labelWithString: "Units:"), fahrenheitRadio, celsiusRadio])),
+            tipsCheck,
             hstack([spacer(), cancelButton, okButton]),
         ])
         stack.orientation = .vertical
@@ -138,6 +182,8 @@ final class ConfigureSheetController: NSObject {
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
             folderLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 260),
             statusLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
+            cityField.widthAnchor.constraint(equalToConstant: 220),
+            locationLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 380),
         ])
         // The button row and status label stretch to the sheet's full width
         for v in [stack.views.last!, statusLabel] {
@@ -179,6 +225,44 @@ final class ConfigureSheetController: NSObject {
     private func updateEnabledState() {
         syncButton.isEnabled = syncRadio.state == .on
         folderButton.isEnabled = folderRadio.state == .on
+        let weatherOn = weatherCheck.state == .on
+        cityField.isEnabled = weatherOn
+        lookupButton.isEnabled = weatherOn
+        fahrenheitRadio.isEnabled = weatherOn
+        celsiusRadio.isEnabled = weatherOn
+    }
+
+    @objc private func weatherToggled(_ sender: Any?) {
+        updateEnabledState()
+    }
+
+    @objc private func unitChanged(_ sender: NSButton) {
+        // Manual radio behaviour, same reason as the photo-source buttons
+        fahrenheitRadio.state = sender == fahrenheitRadio ? .on : .off
+        celsiusRadio.state = sender == celsiusRadio ? .on : .off
+    }
+
+    // Editing the city invalidates an earlier lookup; OK must not persist
+    // coordinates that no longer match the typed text.
+    func controlTextDidChange(_ obj: Notification) {
+        guard obj.object as? NSTextField === cityField, pendingPlace != nil else { return }
+        pendingPlace = nil
+        locationLabel.stringValue = "Click Look Up to confirm this location."
+    }
+
+    @objc private func lookupCity(_ sender: Any?) {
+        let query = cityField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        locationLabel.stringValue = "Looking up “\(query)”…"
+        GeocodingClient.lookup(query) { [weak self] place in
+            guard let self else { return }
+            if let place {
+                self.pendingPlace = place
+                self.locationLabel.stringValue = "Found: \(place.displayName)"
+            } else {
+                self.locationLabel.stringValue = "No match for “\(query)” — check the spelling."
+            }
+        }
     }
 
     @objc private func chooseFolder(_ sender: Any?) {
@@ -203,6 +287,16 @@ final class ConfigureSheetController: NSObject {
         settings.intervalSeconds = PhotoSettings.intervalChoices[max(0, intervalPopup.indexOfSelectedItem)]
         settings.source = offRadio.state == .on ? .off : (syncRadio.state == .on ? .photoSync : .folder)
         settings.save()
+        weatherSettings.enabled = weatherCheck.state == .on
+        if let place = pendingPlace {
+            weatherSettings.locationName = place.name
+            weatherSettings.latitude = place.latitude
+            weatherSettings.longitude = place.longitude
+        }
+        weatherSettings.useFahrenheit = fahrenheitRadio.state == .on
+        weatherSettings.save()
+        tipSettings.enabled = tipsCheck.state == .on
+        tipSettings.save()
         dismiss(.OK)
     }
 

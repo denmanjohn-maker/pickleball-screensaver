@@ -14,6 +14,8 @@
 		AA11000000000005 /* thumbnail.png in Resources */ = {isa = PBXBuildFile; fileRef = AA22000000000007 /* thumbnail.png */; };
 		AA11000000000006 /* thumbnail@2x.png in Resources */ = {isa = PBXBuildFile; fileRef = AA22000000000008 /* thumbnail@2x.png */; };
 		AA11000000000007 /* PhotoSyncShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA22000000000009 /* PhotoSyncShared.swift */; };
+		AA11000000000008 /* WeatherProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2200000000000A /* WeatherProvider.swift */; };
+		AA11000000000009 /* PickleballFacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2200000000000B /* PickleballFacts.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +28,8 @@
 		AA22000000000007 /* thumbnail.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Resources/thumbnail.png; sourceTree = "<group>"; };
 		AA22000000000008 /* thumbnail@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Resources/thumbnail@2x.png"; sourceTree = "<group>"; };
 		AA22000000000009 /* PhotoSyncShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSyncShared.swift; sourceTree = "<group>"; };
+		AA2200000000000A /* WeatherProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherProvider.swift; sourceTree = "<group>"; };
+		AA2200000000000B /* PickleballFacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickleballFacts.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -54,6 +58,8 @@
 				AA22000000000004 /* ConfigureSheet.swift */,
 				AA22000000000005 /* PhotoOverlay.swift */,
 				AA22000000000009 /* PhotoSyncShared.swift */,
+				AA2200000000000A /* WeatherProvider.swift */,
+				AA2200000000000B /* PickleballFacts.swift */,
 				AA22000000000002 /* Info.plist */,
 				AA22000000000006 /* paddle.png */,
 				AA22000000000007 /* thumbnail.png */,
@@ -146,6 +152,8 @@
 				AA11000000000002 /* ConfigureSheet.swift in Sources */,
 				AA11000000000003 /* PhotoOverlay.swift in Sources */,
 				AA11000000000007 /* PhotoSyncShared.swift in Sources */,
+				AA11000000000008 /* WeatherProvider.swift in Sources */,
+				AA11000000000009 /* PickleballFacts.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
