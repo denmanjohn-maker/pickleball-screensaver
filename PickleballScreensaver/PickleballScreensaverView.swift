@@ -96,6 +96,7 @@ class PickleballScreensaverView: ScreenSaverView {
 
     // Colors (matched to reference photo)
     private let greenCourt = CGColor(red: 0.30, green: 0.53, blue: 0.40, alpha: 1)
+    private let grayApron  = CGColor(red: 0.20, green: 0.21, blue: 0.22, alpha: 1)
     private let blueBox    = CGColor(red: 0.13, green: 0.32, blue: 0.62, alpha: 1)
     private let whiteLine  = CGColor(red: 1, green: 1, blue: 1, alpha: 0.95)
 
@@ -541,10 +542,14 @@ class PickleballScreensaverView: ScreenSaverView {
     // MARK: - Court
 
     private func drawCourt(ctx: CGContext) {
-        // Green apron + court surface (one region)
+        // Dark gray apron (outside the lines), green court surface inside
         fillQuad(ctx,
                  proj(-1.15, -0.05, 0), proj(1.15, -0.05, 0),
                  proj(1.15, 1.05, 0),   proj(-1.15, 1.05, 0),
+                 color: grayApron)
+        fillQuad(ctx,
+                 proj(-1, 0, 0), proj(1, 0, 0),
+                 proj(1, 1, 0),  proj(-1, 1, 0),
                  color: greenCourt)
 
         // Blue service boxes (kitchen between kitchenNearZ..kitchenFarZ stays green)
