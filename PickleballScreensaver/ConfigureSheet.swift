@@ -1,18 +1,16 @@
 import AppKit
 import ScreenSaver
-import Photos
 
 // MARK: - Settings
 
 enum PhotoSource: String {
-    case off, photos, folder
+    case off, photoSync, folder
 }
 
 /// Persisted configure-sheet choices, stored in the saver's ScreenSaverDefaults.
 struct PhotoSettings {
     var source: PhotoSource = .off
     var intervalSeconds: Int = 60
-    var albumIdentifier: String?
     var folderBookmark: Data?
 
     static let intervalChoices = [15, 30, 60, 300, 600]
@@ -25,11 +23,15 @@ struct PhotoSettings {
     static func load() -> PhotoSettings {
         var s = PhotoSettings()
         guard let d = defaults else { return s }
-        if let raw = d.string(forKey: "PhotoSourceType"),
-           let src = PhotoSource(rawValue: raw) { s.source = src }
+        if let raw = d.string(forKey: "PhotoSourceType") {
+            if raw == "photos" {
+                s.source = .photoSync
+            } else if let src = PhotoSource(rawValue: raw) {
+                s.source = src
+            }
+        }
         let interval = d.integer(forKey: "PhotoIntervalSeconds")
         if intervalChoices.contains(interval) { s.intervalSeconds = interval }
-        s.albumIdentifier = d.string(forKey: "PhotoAlbumLocalIdentifier")
         s.folderBookmark = d.data(forKey: "PhotoFolderBookmark")
         return s
     }
@@ -38,7 +40,6 @@ struct PhotoSettings {
         guard let d = Self.defaults else { return }
         d.set(source.rawValue, forKey: "PhotoSourceType")
         d.set(intervalSeconds, forKey: "PhotoIntervalSeconds")
-        d.set(albumIdentifier, forKey: "PhotoAlbumLocalIdentifier")
         d.set(folderBookmark, forKey: "PhotoFolderBookmark")
         d.synchronize()
     }
@@ -56,9 +57,9 @@ final class ConfigureSheetController: NSObject {
 
     private let intervalPopup = NSPopUpButton()
     private let offRadio    = NSButton(radioButtonWithTitle: "Off", target: nil, action: nil)
-    private let photosRadio = NSButton(radioButtonWithTitle: "Photos album:", target: nil, action: nil)
+    private let syncRadio   = NSButton(radioButtonWithTitle: "Synced Photos:", target: nil, action: nil)
     private let folderRadio = NSButton(radioButtonWithTitle: "Image folder:", target: nil, action: nil)
-    private let albumPopup = NSPopUpButton()
+    private let syncButton = NSButton(title: "Open Photo Sync…", target: nil, action: nil)
     private let folderButton = NSButton(title: "Choose Folder…", target: nil, action: nil)
     private let folderLabel = NSTextField(labelWithString: "No folder selected")
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
@@ -75,13 +76,11 @@ final class ConfigureSheetController: NSObject {
         if let idx = PhotoSettings.intervalChoices.firstIndex(of: settings.intervalSeconds) {
             intervalPopup.selectItem(at: idx)
         }
-        offRadio.state    = settings.source == .off    ? .on : .off
-        photosRadio.state = settings.source == .photos ? .on : .off
+        offRadio.state = settings.source == .off ? .on : .off
+        syncRadio.state = settings.source == .photoSync ? .on : .off
         folderRadio.state = settings.source == .folder ? .on : .off
-        statusLabel.stringValue = ""
         updateFolderLabel()
-        albumPopup.menu?.removeAllItems()
-        if settings.source == .photos { loadAlbumsIfAuthorized() }
+        refreshPhotoSyncStatus()
         updateEnabledState()
     }
 
@@ -92,11 +91,13 @@ final class ConfigureSheetController: NSObject {
                             styleMask: [.titled], backing: .buffered, defer: true)
         panel.title = "Pickleball Screensaver Options"
 
-        for b in [offRadio, photosRadio, folderRadio] {
+        for b in [offRadio, syncRadio, folderRadio] {
             b.target = self
             b.action = #selector(sourceChanged(_:))
         }
         intervalPopup.addItems(withTitles: Self.intervalTitles)
+        syncButton.target = self
+        syncButton.action = #selector(openPhotoSync(_:))
         folderButton.target = self
         folderButton.action = #selector(chooseFolder(_:))
         folderLabel.textColor = .secondaryLabelColor
@@ -116,8 +117,8 @@ final class ConfigureSheetController: NSObject {
             hstack([NSTextField(labelWithString: "Show a photo every:"), intervalPopup]),
             sourceHeader,
             offRadio,
-            photosRadio,
-            indent(albumPopup),
+            syncRadio,
+            indent(syncButton),
             folderRadio,
             indent(hstack([folderButton, folderLabel])),
             statusLabel,
@@ -135,7 +136,6 @@ final class ConfigureSheetController: NSObject {
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
-            albumPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 240),
             folderLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 260),
             statusLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
         ])
@@ -171,14 +171,13 @@ final class ConfigureSheetController: NSObject {
     @objc private func sourceChanged(_ sender: NSButton) {
         // Manual radio behaviour — the three buttons live in different stack rows,
         // so AppKit won't group them automatically.
-        for b in [offRadio, photosRadio, folderRadio] { b.state = b == sender ? .on : .off }
-        statusLabel.stringValue = ""
-        if sender == photosRadio { requestPhotosAndLoadAlbums() }
+        for b in [offRadio, syncRadio, folderRadio] { b.state = b == sender ? .on : .off }
+        if sender == syncRadio { refreshPhotoSyncStatus() }
         updateEnabledState()
     }
 
     private func updateEnabledState() {
-        albumPopup.isEnabled = photosRadio.state == .on
+        syncButton.isEnabled = syncRadio.state == .on
         folderButton.isEnabled = folderRadio.state == .on
     }
 
@@ -202,8 +201,7 @@ final class ConfigureSheetController: NSObject {
 
     @objc private func ok(_ sender: Any?) {
         settings.intervalSeconds = PhotoSettings.intervalChoices[max(0, intervalPopup.indexOfSelectedItem)]
-        settings.source = offRadio.state == .on ? .off : (photosRadio.state == .on ? .photos : .folder)
-        settings.albumIdentifier = albumPopup.selectedItem?.representedObject as? String ?? settings.albumIdentifier
+        settings.source = offRadio.state == .on ? .off : (syncRadio.state == .on ? .photoSync : .folder)
         settings.save()
         dismiss(.OK)
     }
@@ -220,60 +218,40 @@ final class ConfigureSheetController: NSObject {
         }
     }
 
-    // MARK: Photos albums
+    // MARK: Photo Sync
 
-    private func requestPhotosAndLoadAlbums() {
-        switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
-        case .authorized, .limited:
-            loadAlbums()
-        case .notDetermined:
-            statusLabel.stringValue = "Requesting Photos access…"
-            PHPhotoLibrary.requestAuthorization(for: .readWrite) { [weak self] status in
+    @objc private func openPhotoSync(_ sender: Any?) {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: PhotoSyncShared.appBundleIdentifier) {
+            NSWorkspace.shared.openApplication(at: url, configuration: .init()) { [weak self] _, error in
                 DispatchQueue.main.async {
-                    guard let self else { return }
-                    if status == .authorized || status == .limited {
-                        self.statusLabel.stringValue = ""
-                        self.loadAlbums()
+                    if let error {
+                        self?.statusLabel.stringValue = error.localizedDescription
                     } else {
-                        self.statusLabel.stringValue = "Photos access was denied — choose an image folder instead."
+                        self?.refreshPhotoSyncStatus()
                     }
                 }
             }
-        default:
-            statusLabel.stringValue = "Photos access is denied. Allow it in System Settings › Privacy & Security › Photos, or choose an image folder."
+            return
         }
+        if let bundlePath = PhotoSyncShared.readStatus()?.appBundlePath {
+            let url = URL(fileURLWithPath: bundlePath)
+            if FileManager.default.fileExists(atPath: url.path) {
+                NSWorkspace.shared.openApplication(at: url, configuration: .init()) { [weak self] _, error in
+                    DispatchQueue.main.async {
+                        self?.statusLabel.stringValue = error?.localizedDescription ?? self?.statusLabel.stringValue ?? ""
+                    }
+                }
+                return
+            }
+        }
+        statusLabel.stringValue = "Pickleball Photo Sync is not installed yet. Build it with `make photosync install-photosync`."
     }
 
-    private func loadAlbumsIfAuthorized() {
-        let s = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        if s == .authorized || s == .limited { loadAlbums() }
-    }
-
-    private func loadAlbums() {
-        albumPopup.menu?.removeAllItems()
-        var albums: [(title: String, id: String)] = []
-        let favorites = PHAssetCollection.fetchAssetCollections(
-            with: .smartAlbum, subtype: .smartAlbumFavorites, options: nil)
-        favorites.enumerateObjects { c, _, _ in
-            albums.append((c.localizedTitle ?? "Favorites", c.localIdentifier))
-        }
-        let user = PHAssetCollection.fetchAssetCollections(
-            with: .album, subtype: .albumRegular, options: nil)
-        user.enumerateObjects { c, _, _ in
-            albums.append((c.localizedTitle ?? "Untitled", c.localIdentifier))
-        }
-        for a in albums {
-            // Not addItem(withTitle:) — it silently drops duplicate titles
-            let item = NSMenuItem(title: a.title, action: nil, keyEquivalent: "")
-            item.representedObject = a.id
-            albumPopup.menu?.addItem(item)
-        }
-        if albums.isEmpty {
-            statusLabel.stringValue = "No albums found in your Photos library."
-        }
-        if let id = settings.albumIdentifier,
-           let idx = albums.firstIndex(where: { $0.id == id }) {
-            albumPopup.selectItem(at: idx)
+    private func refreshPhotoSyncStatus() {
+        if let status = PhotoSyncShared.readStatus() {
+            statusLabel.stringValue = status.summaryText
+        } else {
+            statusLabel.stringValue = "Open Photo Sync to choose a Photos album and sync it for the screensaver."
         }
     }
 

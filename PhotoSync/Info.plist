@@ -13,14 +13,14 @@
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
-	<string>BNDL</string>
+	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>NSPrincipalClass</key>
-	<string>PickleballScreensaver.PickleballScreensaverView</string>
-	<key>NSCalendarsUsageDescription</key>
-	<string>Pickleball Screensaver displays today's calendar events on the court.</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Pickleball Photo Sync syncs photos from a selected Photos album for the screensaver.</string>
 </dict>
 </plist>

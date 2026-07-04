@@ -1,6 +1,8 @@
 import ScreenSaver
 import AppKit
 import EventKit
+import CoreImage
+import CoreImage.CIFilterBuiltins
 
 // MARK: - Types
 
@@ -120,9 +122,14 @@ class PickleballScreensaverView: ScreenSaverView {
     private var rightGames = 0
     private var gameBannerTimer: CGFloat = 0
 
-    // Photo dissolve overlay
+    // Photo dissolve overlay — the source image is perspective-warped once per
+    // appearance to exactly fill a court quadrant's trapezoid; drawPhoto then
+    // just blits the cached result every frame.
     private var photoController: PhotoOverlayController?
-    private var photoRect: CGRect = .zero
+    private var photoWarpedImage: CGImage?
+    private var photoWarpedRect: CGRect = .zero
+    private var photoQuadCorners: (nearLeft: CGPoint, nearRight: CGPoint, farLeft: CGPoint, farRight: CGPoint) = (.zero, .zero, .zero, .zero)
+    private static let ciContext = CIContext()
 
     // MARK: - Init
 
@@ -141,7 +148,7 @@ class PickleballScreensaverView: ScreenSaverView {
         wantsLayer = true
         resetRally(leftServes: leftServing)
         fetchTodayEvents()
-        // Photos/bookmark access stays out of the tiny System Settings preview
+        // File loading stays out of the tiny System Settings preview
         if !isPreview {
             let photoSettings = PhotoSettings.load()
             if photoSettings.source != .off {
@@ -1016,54 +1023,88 @@ class PickleballScreensaverView: ScreenSaverView {
         guard let pc = photoController else { return }
         pc.maxPixelSize = max(bounds.width, bounds.height) * (window?.backingScaleFactor ?? 2)
         if pc.update(dt: dt), let img = pc.image {
-            photoRect = pickPhotoRect(for: img)
+            warpPhotoIntoQuadrant(img)
         }
     }
 
-    // Screen rect for a new photo: the bounding box of a random blue quadrant,
-    // avoiding the upper-left overlay column (clock + calendar), with the image
-    // aspect-fit inside.
-    private func pickPhotoRect(for image: CGImage) -> CGRect {
+    // Perspective-warps `image` to exactly fill a randomly chosen blue court
+    // quadrant's trapezoid (near edge wider/lower on screen, far edge
+    // narrower/higher — matching the existing blue-box fillQuad winding), then
+    // rasterizes the result once via a shared CIContext. drawPhoto just blits
+    // the cached CGImage every frame, so this only runs when a new photo
+    // appears, not per frame.
+    private func warpPhotoIntoQuadrant(_ image: CGImage) {
         let quads: [(x0: CGFloat, x1: CGFloat, z0: CGFloat, z1: CGFloat)] = [
             (-1, 0, 0, kitchenNearZ), (0, 1, 0, kitchenNearZ),
             (-1, 0, kitchenFarZ, 1), (0, 1, kitchenFarZ, 1),
         ].shuffled()
         let overlays = CGRect(x: 0, y: bounds.height * 0.5,
                               width: bounds.width * 0.30, height: bounds.height * 0.5)
-        var region = quadBounds(quads[0])
-        for q in quads {
-            let r = quadBounds(q)
-            if !r.intersects(overlays) { region = r; break }
+        // Prefer the first shuffled quadrant that doesn't touch the clock/
+        // calendar column; fall back to the first if all four do (rare).
+        let chosen = quads.first { !quadBoundingRect($0).intersects(overlays) } ?? quads[0]
+        let corners = quadCorners(chosen, insetFrac: 0.08)
+        photoQuadCorners = corners
+
+        let ciImage = CIImage(cgImage: image)
+        let filter = CIFilter.perspectiveTransform()
+        filter.inputImage = ciImage
+        filter.topLeft = corners.farLeft
+        filter.topRight = corners.farRight
+        filter.bottomLeft = corners.nearLeft
+        filter.bottomRight = corners.nearRight
+
+        guard let output = filter.outputImage else { photoWarpedImage = nil; return }
+        let extent = output.extent
+        guard !extent.isInfinite, !extent.isEmpty,
+              let warped = Self.ciContext.createCGImage(output, from: extent) else {
+            photoWarpedImage = nil
+            return
         }
-        if region.intersects(overlays), overlays.maxX < region.maxX - 40 {
-            // Every quadrant touches the overlay column — trim off its left side
-            region = CGRect(x: overlays.maxX, y: region.minY,
-                            width: region.maxX - overlays.maxX, height: region.height)
-        }
-        let aspect = CGFloat(image.width) / CGFloat(image.height)
-        var w = region.width, h = w / aspect
-        if h > region.height { h = region.height; w = h * aspect }
-        return CGRect(x: region.midX - w / 2, y: region.midY - h / 2, width: w, height: h)
+        photoWarpedImage = warped
+        photoWarpedRect = extent
     }
 
-    private func quadBounds(_ q: (x0: CGFloat, x1: CGFloat, z0: CGFloat, z1: CGFloat)) -> CGRect {
+    // Bounding rect of a quadrant's 4 projected corners — used only for the
+    // quick overlay-avoidance test, not for drawing.
+    private func quadBoundingRect(_ q: (x0: CGFloat, x1: CGFloat, z0: CGFloat, z1: CGFloat)) -> CGRect {
         let pts = [proj(q.x0, q.z0, 0), proj(q.x1, q.z0, 0), proj(q.x1, q.z1, 0), proj(q.x0, q.z1, 0)]
         let xs = pts.map(\.x), ys = pts.map(\.y)
-        let r = CGRect(x: xs.min()!, y: ys.min()!,
-                       width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
-        return r.insetBy(dx: r.width * 0.08, dy: r.height * 0.08)
+        return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+    }
+
+    // The 4 projected corners of a quadrant, pulled in toward the centroid by
+    // `insetFrac` so the photo doesn't sit flush against the court lines.
+    // Screen "left"/"right" are resolved from actual projected x (not world
+    // x0/x1) since this oblique corner camera can flip that ordering on the
+    // far side of the net.
+    private func quadCorners(_ q: (x0: CGFloat, x1: CGFloat, z0: CGFloat, z1: CGFloat), insetFrac: CGFloat)
+        -> (nearLeft: CGPoint, nearRight: CGPoint, farLeft: CGPoint, farRight: CGPoint) {
+        let nearA = proj(q.x0, q.z0, 0), nearB = proj(q.x1, q.z0, 0)
+        let farA  = proj(q.x0, q.z1, 0), farB  = proj(q.x1, q.z1, 0)
+        let nearLeft  = nearA.x <= nearB.x ? nearA : nearB
+        let nearRight = nearA.x <= nearB.x ? nearB : nearA
+        let farLeft   = farA.x <= farB.x ? farA : farB
+        let farRight  = farA.x <= farB.x ? farB : farA
+        let cx = (nearLeft.x + nearRight.x + farLeft.x + farRight.x) / 4
+        let cy = (nearLeft.y + nearRight.y + farLeft.y + farRight.y) / 4
+        func pull(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: cx + (p.x - cx) * (1 - insetFrac), y: cy + (p.y - cy) * (1 - insetFrac))
+        }
+        return (pull(nearLeft), pull(nearRight), pull(farLeft), pull(farRight))
     }
 
     private func drawPhoto(ctx: CGContext) {
-        guard let pc = photoController, let img = pc.image, !photoRect.isEmpty else { return }
+        guard let pc = photoController, let img = photoWarpedImage, pc.image != nil else { return }
         let alpha = pc.alpha
         guard alpha > 0 else { return }
         ctx.saveGState()
         ctx.setAlpha(alpha)
-        ctx.draw(img, in: photoRect)
+        ctx.draw(img, in: photoWarpedRect)
         ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.6))
         ctx.setLineWidth(2)
-        ctx.stroke(photoRect)
+        let c = photoQuadCorners
+        strokeQuad(ctx, c.nearLeft, c.nearRight, c.farRight, c.farLeft)
         ctx.restoreGState()
     }
 

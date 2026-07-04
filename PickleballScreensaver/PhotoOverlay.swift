@@ -1,11 +1,10 @@
 import AppKit
-import Photos
 import ImageIO
 
-/// Drives the photo-dissolve overlay: sources images from a Photos album or a
-/// bookmarked folder and runs the idle → fadeIn → hold → fadeOut cycle. All
-/// loading happens off the main thread; `update(dt:)` and `alpha`/`image` are
-/// main-thread only and never block.
+/// Drives the photo-dissolve overlay: sources images from the synced Photos
+/// folder or a bookmarked folder and runs the idle → fadeIn → hold → fadeOut
+/// cycle. All loading happens off the main thread; `update(dt:)` and
+/// `alpha`/`image` are main-thread only and never block.
 final class PhotoOverlayController {
 
     private enum Phase { case idle, fadeIn, hold, fadeOut }
@@ -106,43 +105,14 @@ final class PhotoOverlayController {
     }
 
     private static func loadRandomImage(settings: PhotoSettings, maxPixelSize: CGFloat) -> CGImage? {
-        if settings.source == .photos,
-           let img = loadFromPhotos(albumIdentifier: settings.albumIdentifier, maxPixelSize: maxPixelSize) {
-            return img
+        switch settings.source {
+        case .off:
+            return nil
+        case .photoSync:
+            return loadFromDirectory(url: PhotoSyncShared.syncedPhotosDirectoryURL, maxPixelSize: maxPixelSize)
+        case .folder:
+            return loadFromFolder(bookmark: settings.folderBookmark, maxPixelSize: maxPixelSize)
         }
-        // The folder is both a source in its own right and the fallback when
-        // Photos is unauthorized, the album is gone, or an asset won't load.
-        return loadFromFolder(bookmark: settings.folderBookmark, maxPixelSize: maxPixelSize)
-    }
-
-    private static func loadFromPhotos(albumIdentifier: String?, maxPixelSize: CGFloat) -> CGImage? {
-        guard let albumIdentifier else { return nil }
-        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        guard status == .authorized || status == .limited else { return nil }
-        guard let album = PHAssetCollection.fetchAssetCollections(
-            withLocalIdentifiers: [albumIdentifier], options: nil).firstObject else { return nil }
-        let fetchOpts = PHFetchOptions()
-        fetchOpts.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
-        let assets = PHAsset.fetchAssets(in: album, options: fetchOpts)
-        guard assets.count > 0 else { return nil }
-        let asset = assets.object(at: Int.random(in: 0..<assets.count))
-
-        let opts = PHImageRequestOptions()
-        opts.isSynchronous = true          // we're already on a utility queue
-        opts.deliveryMode = .highQualityFormat
-        opts.isNetworkAccessAllowed = false   // never stall on iCloud originals
-        opts.resizeMode = .fast
-        var result: CGImage?
-        PHImageManager.default().requestImage(
-            for: asset,
-            targetSize: CGSize(width: maxPixelSize, height: maxPixelSize),
-            contentMode: .aspectFit, options: opts) { image, info in
-            let degraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
-            if let image, !degraded {
-                result = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
-            }
-        }
-        return result
     }
 
     private static func loadFromFolder(bookmark: Data?, maxPixelSize: CGFloat) -> CGImage? {
@@ -154,7 +124,10 @@ final class PhotoOverlayController {
         guard let url else { return nil }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        return loadFromDirectory(url: url, maxPixelSize: maxPixelSize)
+    }
 
+    private static func loadFromDirectory(url: URL, maxPixelSize: CGFloat) -> CGImage? {
         let exts: Set<String> = ["png", "jpg", "jpeg", "heic", "heif", "tiff", "gif", "webp"]
         guard let files = try? FileManager.default
             .contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
