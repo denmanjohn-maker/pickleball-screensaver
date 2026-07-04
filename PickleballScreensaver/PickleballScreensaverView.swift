@@ -744,14 +744,19 @@ class PickleballScreensaverView: ScreenSaverView {
         let face = proj(wx, wz + state.faceDZ, state.faceY)
         let faceCenterPx = (Self.paddleFaceCenterFrac - Self.paddlePivotFrac) * hPx
         // Rest pose is HORIZONTAL: face points at the net, handle toward the body.
-        // The paddle axis lives in the world z-y plane (toward-net tilted by the
-        // swing angle); project a short probe along it through the camera so the
-        // on-screen rotation matches the perspective at either baseline.
+        // The on-screen rotation comes from projecting a probe along the paddle
+        // axis (toward-net tilted by the swing angle). The corner camera projects
+        // the far player's toward-net axis downward into the court, which reads
+        // as the paddle hanging at the floor, so the far pose is evaluated
+        // mirrored through the net onto the near court and the angle reflected —
+        // both players then read as screen-space mirror images.
         let kFt: CGFloat = 0.5   // probe length in feet
-        let tip = proj(wx,
-                       wz + state.faceDZ + side * cos(state.swingAngle) * kFt / ftPerZ,
-                       state.faceY + sin(state.swingAngle) * kFt / ftPerY)
-        let phi = atan2(tip.y - face.y, tip.x - face.x) - .pi / 2
+        let zBase = side > 0 ? wz + state.faceDZ : 1 - (wz + state.faceDZ)
+        let base = proj(wx, zBase, state.faceY)
+        let tip  = proj(wx, zBase + cos(state.swingAngle) * kFt / ftPerZ,
+                        state.faceY + sin(state.swingAngle) * kFt / ftPerY)
+        let phiNear = atan2(tip.y - base.y, tip.x - base.x) - .pi / 2
+        let phi = side > 0 ? phiNear : -phiNear
         let pivot = CGPoint(x: face.x + faceCenterPx * sin(phi),
                             y: face.y - faceCenterPx * cos(phi))
 
