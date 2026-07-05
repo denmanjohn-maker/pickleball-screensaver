@@ -511,10 +511,17 @@ class PickleballScreensaverView: ScreenSaverView {
             return c.x > size && c.x < bounds.width - size
                 && c.y > size && c.y < bounds.height - size
         }
+        // Sample the drift path at size-sized steps so the swept band can't
+        // clip an apron corner between a clear start and a clear end
+        let drift = hypot(vel.dx, vel.dy) * duration
+        let steps = max(1, Int(ceil(drift / size)))
         for _ in 0..<16 {
             let p = CGPoint(x: .random(in: 0...bounds.width), y: .random(in: 0...bounds.height))
-            let end = CGPoint(x: p.x + vel.dx * duration, y: p.y + vel.dy * duration)
-            if clear(p) && clear(end) {
+            let path = (0...steps).map { i -> CGPoint in
+                let t = duration * CGFloat(i) / CGFloat(steps)
+                return CGPoint(x: p.x + vel.dx * t, y: p.y + vel.dy * t)
+            }
+            if path.allSatisfy(clear) {
                 return Ghost(kind: kind, pos: p, vel: vel, angle: .random(in: 0...(2 * .pi)),
                              spin: spin, size: size, duration: duration)
             }
