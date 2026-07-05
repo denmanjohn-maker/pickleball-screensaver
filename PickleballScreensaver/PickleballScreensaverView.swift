@@ -857,9 +857,9 @@ class PickleballScreensaverView: ScreenSaverView {
     private func drawCourt(ctx: CGContext) {
         // Court surface floats on the wallpaper; a soft drop shadow lifts it
         ctx.saveGState()
-        ctx.setShadow(offset: CGSize(width: 0, height: -bounds.height * 0.012),
-                      blur: bounds.height * 0.03,
-                      color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.55))
+        ctx.setShadow(offset: CGSize(width: bounds.height * 0.008, height: -bounds.height * 0.022),
+                      blur: bounds.height * 0.05,
+                      color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.85))
         fillQuad(ctx,
                  proj(-1, 0, 0), proj(1, 0, 0),
                  proj(1, 1, 0),  proj(-1, 1, 0),
