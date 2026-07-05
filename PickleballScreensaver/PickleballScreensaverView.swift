@@ -119,7 +119,6 @@ class PickleballScreensaverView: ScreenSaverView {
 
     // Colors (matched to reference photo)
     private let greenCourt = CGColor(red: 0.30, green: 0.53, blue: 0.40, alpha: 1)
-    private let grayApron  = CGColor(red: 0.20, green: 0.21, blue: 0.22, alpha: 1)
     private let blueBox    = CGColor(red: 0.13, green: 0.32, blue: 0.62, alpha: 1)
     private let whiteLine  = CGColor(red: 1, green: 1, blue: 1, alpha: 0.95)
 
@@ -856,15 +855,16 @@ class PickleballScreensaverView: ScreenSaverView {
     // MARK: - Court
 
     private func drawCourt(ctx: CGContext) {
-        // Dark gray apron (outside the lines), green court surface inside
-        fillQuad(ctx,
-                 proj(-1.15, -0.05, 0), proj(1.15, -0.05, 0),
-                 proj(1.15, 1.05, 0),   proj(-1.15, 1.05, 0),
-                 color: grayApron)
+        // Court surface floats on the wallpaper; a soft drop shadow lifts it
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -bounds.height * 0.012),
+                      blur: bounds.height * 0.03,
+                      color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.55))
         fillQuad(ctx,
                  proj(-1, 0, 0), proj(1, 0, 0),
                  proj(1, 1, 0),  proj(-1, 1, 0),
                  color: greenCourt)
+        ctx.restoreGState()
 
         // Blue service boxes (kitchen between kitchenNearZ..kitchenFarZ stays green)
         // Near half: baseline (0) → near kitchen line
@@ -877,8 +877,8 @@ class PickleballScreensaverView: ScreenSaverView {
         // Court surface texture — perspective-correct horizontal + vertical grain lines
         ctx.saveGState()
         let courtPath = CGMutablePath()
-        courtPath.move(to: proj(-1.15, -0.05, 0)); courtPath.addLine(to: proj(1.15, -0.05, 0))
-        courtPath.addLine(to: proj(1.15, 1.05, 0)); courtPath.addLine(to: proj(-1.15, 1.05, 0))
+        courtPath.move(to: proj(-1, 0, 0)); courtPath.addLine(to: proj(1, 0, 0))
+        courtPath.addLine(to: proj(1, 1, 0)); courtPath.addLine(to: proj(-1, 1, 0))
         courtPath.closeSubpath()
         ctx.addPath(courtPath); ctx.clip()
 
