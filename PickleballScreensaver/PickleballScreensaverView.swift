@@ -152,6 +152,12 @@ class PickleballScreensaverView: ScreenSaverView {
     // Ball spin
     private var ballSpin: CGFloat = 0
 
+    // Turntable spin — a full 360° yaw of the scene every minute on the minute
+    private var courtYaw: CGFloat = 0     // current angle, rad
+    private var spinT: CGFloat = -1       // -1 = idle, else 0..1 progress
+    private let spinDuration: CGFloat = 6.0
+    private var lastMinuteMark = 0
+
     // Ambient wallpaper ghosts (paddle spins, ball rolls by at random times)
     private var ghosts: [Ghost] = []
     private var ghostSpawnTimer: CGFloat = .random(in: 3...8)
@@ -262,7 +268,11 @@ class PickleballScreensaverView: ScreenSaverView {
     private lazy var camU: F3 = camR.cross(camF)
 
     private func toFeet(_ wx: CGFloat, _ wz: CGFloat, _ wy: CGFloat) -> F3 {
-        F3(l: (wz - 0.5) * ftPerZ, w: wx * ftPerX, y: wy * ftPerY)
+        let l = (wz - 0.5) * ftPerZ, w = wx * ftPerX
+        guard courtYaw != 0 else { return F3(l: l, w: w, y: wy * ftPerY) }
+        // Turntable yaw about the court center spins the whole scene coherently
+        let c = cos(courtYaw), s = sin(courtYaw)
+        return F3(l: l * c - w * s, w: l * s + w * c, y: wy * ftPerY)
     }
 
     // Normalized image-plane coords (x, y) and camera depth for a world point
@@ -279,6 +289,10 @@ class PickleballScreensaverView: ScreenSaverView {
         if let c = fitCache, c.size == bounds.size { return (c.focal, c.xOff, c.yOff) }
         var minX = CGFloat.infinity, maxX = -CGFloat.infinity
         var minY = CGFloat.infinity, maxY = -CGFloat.infinity
+        // Framing is always the unrotated view so a mid-spin resize can't bake
+        // a rotated fit (the court would zoom/jitter for the rest of the spin)
+        let yaw = courtYaw; courtYaw = 0
+        defer { courtYaw = yaw }
         for (wx, wz) in [(-1.15, -0.05), (1.15, -0.05), (1.15, 1.05), (-1.15, 1.05)] {
             let u = unitProj(CGFloat(wx), CGFloat(wz), 0)
             minX = min(minX, u.x); maxX = max(maxX, u.x)
@@ -368,6 +382,16 @@ class PickleballScreensaverView: ScreenSaverView {
 
         updatePhotoOverlay(dt: dt)   // before the faultTimer early return
         updateGhosts(dt: dt)
+
+        // Turntable spin: kick off at every wall-clock minute boundary
+        let minuteMark = Int(now / 60)
+        if lastMinuteMark == 0 { lastMinuteMark = minuteMark }   // no spin at launch
+        if minuteMark != lastMinuteMark { lastMinuteMark = minuteMark; spinT = 0 }
+        if spinT >= 0 {
+            spinT += dt / spinDuration
+            if spinT >= 1 { spinT = -1; courtYaw = 0 }
+            else { courtYaw = 2 * .pi * smoothstep(spinT) }
+        }
 
         // Overlay content keeps updating even during the fault pause
         weatherProvider?.updateIfNeeded()
@@ -675,7 +699,9 @@ class PickleballScreensaverView: ScreenSaverView {
         drawBackground(ctx: ctx, rect: rect)
         drawGhosts(ctx: ctx)
         drawCourt(ctx: ctx)
-        drawPhoto(ctx: ctx)   // under ball, net, paddles, and overlays
+        // The photo's perspective warp is cached against the unrotated court
+        // quadrant, so it would detach from the court mid-spin — hide it there
+        if spinT < 0 { drawPhoto(ctx: ctx) }   // under ball, net, paddles, and overlays
         drawBallShadow(ctx: ctx)
         drawTrail(ctx: ctx)
 
