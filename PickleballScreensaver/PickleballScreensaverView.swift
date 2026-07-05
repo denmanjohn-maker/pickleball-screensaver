@@ -24,6 +24,27 @@ private struct PlayerState {
     var armed = true            // ready to start a new backswing
 }
 
+// Ambient wallpaper animation: a paddle or ball drawn over the background
+// pattern in the same muted style, fading in, moving/spinning, fading out.
+private enum GhostKind { case paddle, ball }
+
+private struct Ghost {
+    var kind: GhostKind
+    var pos: CGPoint       // screen-space center
+    var vel: CGVector      // pts/sec drift (ball rolls; paddle stays put)
+    var angle: CGFloat     // current rotation, rad
+    var spin: CGFloat      // rad/sec
+    var size: CGFloat      // half-height (paddle) / radius (ball), pts
+    var t: CGFloat = 0     // elapsed seconds
+    var duration: CGFloat  // total lifetime
+
+    // Trapezoid fade: in over the first 20% of life, out over the last 25%
+    var alpha: CGFloat {
+        let f = t / duration
+        return max(0, min(1, min(f / 0.20, (1 - f) / 0.25)))
+    }
+}
+
 // 3D vector in feet: l = along court length (0 at net), w = across width, y = up
 private struct F3 {
     var l: CGFloat, w: CGFloat, y: CGFloat
@@ -130,6 +151,11 @@ class PickleballScreensaverView: ScreenSaverView {
 
     // Ball spin
     private var ballSpin: CGFloat = 0
+
+    // Ambient wallpaper ghosts (paddle spins, ball rolls by at random times)
+    private var ghosts: [Ghost] = []
+    private var ghostSpawnTimer: CGFloat = .random(in: 3...8)
+    private let maxGhosts = 2
 
     // Rally state
     private var lastFrameTime: TimeInterval = 0
@@ -341,6 +367,7 @@ class PickleballScreensaverView: ScreenSaverView {
         lastFrameTime = now
 
         updatePhotoOverlay(dt: dt)   // before the faultTimer early return
+        updateGhosts(dt: dt)
 
         // Overlay content keeps updating even during the fault pause
         weatherProvider?.updateIfNeeded()
@@ -423,6 +450,76 @@ class PickleballScreensaverView: ScreenSaverView {
         if trailPoints.count > 18 { trailPoints.removeFirst() }
 
         setNeedsDisplay(bounds)
+    }
+
+    // MARK: - Ambient wallpaper ghosts
+
+    private func updateGhosts(dt: CGFloat) {
+        for i in ghosts.indices {
+            ghosts[i].t += dt
+            ghosts[i].angle += ghosts[i].spin * dt
+            ghosts[i].pos.x += ghosts[i].vel.dx * dt
+            ghosts[i].pos.y += ghosts[i].vel.dy * dt
+        }
+        ghosts.removeAll { $0.t >= $0.duration }
+
+        ghostSpawnTimer -= dt
+        if ghostSpawnTimer <= 0 {
+            ghostSpawnTimer = .random(in: 6...15)
+            if ghosts.count < maxGhosts, let g = makeGhost() { ghosts.append(g) }
+        }
+    }
+
+    // Pick a spot for a new ghost that stays clear of the overlay rail and the
+    // court apron for its whole drift; a few misses just skips this cycle.
+    private func makeGhost() -> Ghost? {
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
+        let kind: GhostKind = Bool.random() ? .paddle : .ball
+        let size = bounds.height * (kind == .paddle ? CGFloat.random(in: 0.05...0.09)
+                                                    : CGFloat.random(in: 0.02...0.035))
+        let duration = CGFloat.random(in: 5...9)
+        var vel = CGVector.zero
+        var spin = CGFloat.random(in: 0.3...0.7) * (Bool.random() ? 1 : -1)
+        if kind == .ball {
+            let dx = bounds.width * CGFloat.random(in: 0.008...0.016) * (Bool.random() ? 1 : -1)
+            vel = CGVector(dx: dx, dy: 0)
+            spin = -dx / size   // rotation matches translation so the ball reads as rolling
+        }
+
+        let railRect = CGRect(x: 0, y: 0, width: bounds.width * 0.30, height: bounds.height)
+        // Court apron trapezoid (convex). The wallpaper triangles beside it
+        // are fair game, so test the quad itself, not its bounding rect.
+        let quad = [(-1.15, -0.05), (1.15, -0.05), (1.15, 1.05), (-1.15, 1.05)]
+            .map { proj(CGFloat($0.0), CGFloat($0.1), 0) }
+        func insideApron(_ p: CGPoint) -> Bool {
+            var sign: CGFloat = 0
+            for i in 0..<4 {
+                let a = quad[i], b = quad[(i + 1) % 4]
+                let cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
+                if cross == 0 { continue }
+                if sign == 0 { sign = cross } else if sign * cross < 0 { return false }
+            }
+            return true
+        }
+        // A candidate is good if the ghost's footprint (start and end of its
+        // drift, expanded by its size) misses the rail, the apron, and the edges
+        func clear(_ c: CGPoint) -> Bool {
+            for pt in [c, CGPoint(x: c.x - size, y: c.y - size), CGPoint(x: c.x - size, y: c.y + size),
+                       CGPoint(x: c.x + size, y: c.y - size), CGPoint(x: c.x + size, y: c.y + size)] {
+                if insideApron(pt) || railRect.contains(pt) { return false }
+            }
+            return c.x > size && c.x < bounds.width - size
+                && c.y > size && c.y < bounds.height - size
+        }
+        for _ in 0..<16 {
+            let p = CGPoint(x: .random(in: 0...bounds.width), y: .random(in: 0...bounds.height))
+            let end = CGPoint(x: p.x + vel.dx * duration, y: p.y + vel.dy * duration)
+            if clear(p) && clear(end) {
+                return Ghost(kind: kind, pos: p, vel: vel, angle: .random(in: 0...(2 * .pi)),
+                             spin: spin, size: size, duration: duration)
+            }
+        }
+        return nil
     }
 
     // Extrapolate the ball's x to when it reaches depth targetZ (clamped to court)
@@ -569,6 +666,7 @@ class PickleballScreensaverView: ScreenSaverView {
     override func draw(_ rect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         drawBackground(ctx: ctx, rect: rect)
+        drawGhosts(ctx: ctx)
         drawCourt(ctx: ctx)
         drawPhoto(ctx: ctx)   // under ball, net, paddles, and overlays
         drawBallShadow(ctx: ctx)
@@ -664,6 +762,62 @@ class PickleballScreensaverView: ScreenSaverView {
         guard let img = bctx.makeImage() else { return nil }
         bgScaledCache = (bounds.size, img)
         return img
+    }
+
+    // MARK: - Ghost drawing (over the wallpaper, under everything else)
+
+    private let ghostFill = CGColor(red: 0.12, green: 0.24, blue: 0.23, alpha: 1)
+
+    private func drawGhosts(ctx: CGContext) {
+        for g in ghosts where g.alpha > 0 {
+            ctx.saveGState()
+            ctx.setAlpha(g.alpha * 0.5)
+            // The transparency layer isolates the .clear hole punches so they
+            // erase within the ghost only, not through the wallpaper below
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+            ctx.translateBy(x: g.pos.x, y: g.pos.y)
+            ctx.rotate(by: g.angle)
+            switch g.kind {
+            case .paddle: drawGhostPaddle(ctx: ctx, halfH: g.size)
+            case .ball:   drawGhostBall(ctx: ctx, r: g.size)
+            }
+            ctx.endTransparencyLayer()
+            ctx.restoreGState()
+        }
+    }
+
+    // Silhouette matching the real paddle's proportions, centered on the origin
+    private func drawGhostPaddle(ctx: CGContext, halfH: CGFloat) {
+        let hPx = halfH * 2
+        let wPx = hPx * Self.paddleAspect
+        let handleW = 0.27 * wPx
+        ctx.setFillColor(ghostFill)
+        ctx.addPath(CGPath(roundedRect: CGRect(x: -handleW / 2, y: -halfH,
+                                               width: handleW, height: Self.paddlePivotFrac * hPx),
+                           cornerWidth: handleW * 0.3, cornerHeight: handleW * 0.3, transform: nil))
+        ctx.addPath(CGPath(roundedRect: CGRect(x: -wPx / 2, y: -halfH + Self.paddlePivotFrac * hPx,
+                                               width: wPx, height: (1 - Self.paddlePivotFrac) * hPx),
+                           cornerWidth: wPx * 0.15, cornerHeight: wPx * 0.15, transform: nil))
+        ctx.fillPath()
+    }
+
+    // Muted disc with the pickleball hole pattern punched through to the wallpaper
+    private func drawGhostBall(ctx: CGContext, r: CGFloat) {
+        ctx.setFillColor(ghostFill)
+        ctx.fillEllipse(in: CGRect(x: -r, y: -r, width: r * 2, height: r * 2))
+        ctx.setBlendMode(.clear)
+        let hr = max(0.6, r * 0.15)
+        for i in 0..<5 {
+            let a = CGFloat(i) / 5 * .pi * 2
+            ctx.fillEllipse(in: CGRect(x: cos(a) * r * 0.40 - hr, y: sin(a) * r * 0.40 - hr,
+                                       width: hr * 2, height: hr * 2))
+        }
+        for i in 0..<6 {
+            let a = CGFloat(i) / 6 * .pi * 2 + .pi / 6
+            ctx.fillEllipse(in: CGRect(x: cos(a) * r * 0.72 - hr, y: sin(a) * r * 0.72 - hr,
+                                       width: hr * 2, height: hr * 2))
+        }
+        ctx.setBlendMode(.normal)
     }
 
     // MARK: - Court
@@ -1011,11 +1165,11 @@ class PickleballScreensaverView: ScreenSaverView {
                           transform: nil)
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: 0, height: -rail.pad * 0.3), blur: rail.pad,
-                      color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.30))
-        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.35))
+                      color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.22))
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.75))
         ctx.addPath(path); ctx.fillPath()
         ctx.restoreGState()
-        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.12))
+        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.16))
         ctx.setLineWidth(1)
         ctx.addPath(path); ctx.strokePath()
         return rect.insetBy(dx: rail.pad, dy: rail.pad)
@@ -1363,9 +1517,9 @@ class PickleballScreensaverView: ScreenSaverView {
         let pill = CGRect(x: x0 - padX, y: y - padY, width: sz.width + padX * 2, height: sz.height + padY * 2)
         let path = CGPath(roundedRect: pill, cornerWidth: pill.height / 2, cornerHeight: pill.height / 2,
                           transform: nil)
-        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.35))
+        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.75))
         ctx.addPath(path); ctx.fillPath()
-        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.12))
+        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.16))
         ctx.setLineWidth(1)
         ctx.addPath(path); ctx.strokePath()
 
