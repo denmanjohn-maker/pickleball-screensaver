@@ -55,6 +55,7 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
 
     private var settings = PhotoSettings.load()
     private var weatherSettings = WeatherSettings.load()
+    private var tournamentSettings = TournamentSettings.load()
     private var tipSettings = TipSettings.load()
     private var pendingPlace: GeocodedPlace?
 
@@ -73,6 +74,10 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
     private let locationLabel = NSTextField(labelWithString: "No location set")
     private let fahrenheitRadio = NSButton(radioButtonWithTitle: "°F", target: nil, action: nil)
     private let celsiusRadio    = NSButton(radioButtonWithTitle: "°C", target: nil, action: nil)
+    private let tournamentsCheck = NSButton(checkboxWithTitle: "Show nearby tournaments", target: nil, action: nil)
+    private let tournamentsWindowPopup = NSPopUpButton()
+    private let tournamentsHintLabel = NSTextField(wrappingLabelWithString:
+        "Uses the weather city above — works best near a major US metro area.")
     private let tipsCheck = NSButton(checkboxWithTitle: "Show pickleball tips & facts", target: nil, action: nil)
     private let drillCheck = NSButton(checkboxWithTitle: "Show drill of the day", target: nil, action: nil)
     private let drillLevelPopup = NSPopUpButton()
@@ -81,6 +86,8 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
     private static let drillLevelChoices = ["all", "3.0", "3.5", "4.0", "5.0"]
     private static let drillLevelTitles = ["All levels", "3.0 Beginner", "3.5 Intermediate",
                                            "4.0 Advanced", "5.0 Pro"]
+    private static let tournamentWindowChoices = [1, 3]
+    private static let tournamentWindowTitles = ["Next 1 month", "Next 3 months"]
 
     private(set) lazy var window: NSWindow = buildWindow()
 
@@ -90,6 +97,7 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         _ = window
         settings = PhotoSettings.load()
         weatherSettings = WeatherSettings.load()
+        tournamentSettings = TournamentSettings.load()
         tipSettings = TipSettings.load()
         pendingPlace = nil
         if let idx = PhotoSettings.intervalChoices.firstIndex(of: settings.intervalSeconds) {
@@ -105,6 +113,8 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
             : "No location set — enter a city and click Look Up."
         fahrenheitRadio.state = weatherSettings.useFahrenheit ? .on : .off
         celsiusRadio.state = weatherSettings.useFahrenheit ? .off : .on
+        tournamentsCheck.state = tournamentSettings.enabled ? .on : .off
+        tournamentsWindowPopup.selectItem(at: Self.tournamentWindowChoices.firstIndex(of: tournamentSettings.windowMonths) ?? 1)
         tipsCheck.state = tipSettings.enabled ? .on : .off
         drillCheck.state = tipSettings.drillEnabled ? .on : .off
         drillLevelPopup.selectItem(at: Self.drillLevelChoices.firstIndex(of: tipSettings.drillLevel) ?? 0)
@@ -144,6 +154,12 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         drillCheck.target = self
         drillCheck.action = #selector(drillToggled(_:))
 
+        tournamentsWindowPopup.addItems(withTitles: Self.tournamentWindowTitles)
+        tournamentsCheck.target = self
+        tournamentsCheck.action = #selector(tournamentsToggled(_:))
+        tournamentsHintLabel.textColor = .secondaryLabelColor
+        tournamentsHintLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+
         lookupButton.target = self
         lookupButton.action = #selector(lookupCity(_:))
         cityField.placeholderString = "City, e.g. Austin"
@@ -176,6 +192,9 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
             indent(hstack([cityField, lookupButton])),
             indent(locationLabel),
             indent(hstack([NSTextField(labelWithString: "Units:"), fahrenheitRadio, celsiusRadio])),
+            tournamentsCheck,
+            indent(hstack([NSTextField(labelWithString: "Show:"), tournamentsWindowPopup])),
+            indent(tournamentsHintLabel),
             tipsCheck,
             drillCheck,
             indent(hstack([NSTextField(labelWithString: "Drill level:"), drillLevelPopup])),
@@ -197,6 +216,7 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
             statusLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 420),
             cityField.widthAnchor.constraint(equalToConstant: 220),
             locationLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 380),
+            tournamentsHintLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 380),
         ])
         // The button row and status label stretch to the sheet's full width
         for v in [stack.views.last!, statusLabel] {
@@ -244,9 +264,15 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         fahrenheitRadio.isEnabled = weatherOn
         celsiusRadio.isEnabled = weatherOn
         drillLevelPopup.isEnabled = drillCheck.state == .on
+        tournamentsCheck.isEnabled = weatherOn
+        tournamentsWindowPopup.isEnabled = weatherOn && tournamentsCheck.state == .on
     }
 
     @objc private func weatherToggled(_ sender: Any?) {
+        updateEnabledState()
+    }
+
+    @objc private func tournamentsToggled(_ sender: Any?) {
         updateEnabledState()
     }
 
@@ -313,6 +339,9 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         }
         weatherSettings.useFahrenheit = fahrenheitRadio.state == .on
         weatherSettings.save()
+        tournamentSettings.enabled = tournamentsCheck.state == .on && weatherSettings.enabled
+        tournamentSettings.windowMonths = Self.tournamentWindowChoices[max(0, tournamentsWindowPopup.indexOfSelectedItem)]
+        tournamentSettings.save()
         tipSettings.enabled = tipsCheck.state == .on
         tipSettings.drillEnabled = drillCheck.state == .on
         tipSettings.drillLevel = Self.drillLevelChoices[max(0, drillLevelPopup.indexOfSelectedItem)]
