@@ -732,7 +732,12 @@ class PickleballScreensaverView: ScreenSaverView {
         var railY = rect.height * 0.95
         railY = drawClock(ctx: ctx, rect: rect, rail: rail, top: railY) - rail.gap
         railY = drawAgenda(ctx: ctx, rect: rect, rail: rail, top: railY) - rail.gap
-        railY = drawWeather(ctx: ctx, rect: rect, rail: rail, top: railY) - rail.gap
+        // drawWeather/drawTournaments return `top` unchanged when they have
+        // nothing to draw yet (no snapshot); only eat the gap when a card
+        // actually rendered, so a still-loading card doesn't shift the rest
+        // of the rail down.
+        let afterWeather = drawWeather(ctx: ctx, rect: rect, rail: rail, top: railY)
+        if afterWeather != railY { railY = afterWeather - rail.gap }
         _ = drawTournaments(ctx: ctx, rect: rect, rail: rail, top: railY)
         let tipTop = drawTip(ctx: ctx, rect: rect, rail: rail)
         drawDrill(ctx: ctx, rect: rect, rail: rail, bottom: tipTop + rail.gap)
@@ -1447,7 +1452,7 @@ class PickleballScreensaverView: ScreenSaverView {
         let maxW = rail.width - rail.pad * 2
 
         if let unsupported = provider.unsupportedRegion {
-            let msg = "No tracked tournament region within 100 mi — nearest is "
+            let msg = "No tracked pickleball metro near your weather city — nearest is "
                 + "\(unsupported.metroName), \(unsupported.metroState) "
                 + "(~\(Int(unsupported.distanceMiles.rounded())) mi away)."
             let bodyAttrs = textAttrs(rowSize, .regular, alpha: 0.60)

@@ -76,7 +76,8 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
     private let celsiusRadio    = NSButton(radioButtonWithTitle: "°C", target: nil, action: nil)
     private let tournamentsCheck = NSButton(checkboxWithTitle: "Show nearby tournaments", target: nil, action: nil)
     private let tournamentsWindowPopup = NSPopUpButton()
-    private let tournamentsHintLabel = NSTextField(wrappingLabelWithString: "Uses the weather city above, within 100 miles.")
+    private let tournamentsHintLabel = NSTextField(wrappingLabelWithString:
+        "Uses the weather city above — works best near a major US metro area.")
     private let tipsCheck = NSButton(checkboxWithTitle: "Show pickleball tips & facts", target: nil, action: nil)
     private let drillCheck = NSButton(checkboxWithTitle: "Show drill of the day", target: nil, action: nil)
     private let drillLevelPopup = NSPopUpButton()
