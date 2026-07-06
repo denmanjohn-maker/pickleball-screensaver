@@ -131,6 +131,9 @@ class PickleballScreensaverView: ScreenSaverView {
     // Weather (fetched by WeatherProvider from the animation loop)
     private var weatherProvider: WeatherProvider?
 
+    // Nearby tournaments (fetched by TournamentProvider from the animation loop)
+    private var tournamentProvider: TournamentProvider?
+
     // Rotating pickleball facts
     private var tipsEnabled = true
     private var tipOrder = Array(PickleballFacts.all.indices).shuffled()
@@ -216,6 +219,10 @@ class PickleballScreensaverView: ScreenSaverView {
             let weatherSettings = WeatherSettings.load()
             if weatherSettings.enabled && weatherSettings.hasLocation {
                 weatherProvider = WeatherProvider(settings: weatherSettings)
+            }
+            let tournamentSettings = TournamentSettings.load()
+            if tournamentSettings.enabled && weatherSettings.hasLocation {
+                tournamentProvider = TournamentProvider(settings: tournamentSettings, weatherSettings: weatherSettings)
             }
         }
     }
@@ -394,6 +401,7 @@ class PickleballScreensaverView: ScreenSaverView {
 
         // Overlay content keeps updating even during the fault pause
         weatherProvider?.updateIfNeeded()
+        tournamentProvider?.updateIfNeeded()
         updateTip(dt: dt)
         if now - lastEventFetch > 300 { fetchUpcomingEvents() }
 
@@ -724,7 +732,8 @@ class PickleballScreensaverView: ScreenSaverView {
         var railY = rect.height * 0.95
         railY = drawClock(ctx: ctx, rect: rect, rail: rail, top: railY) - rail.gap
         railY = drawAgenda(ctx: ctx, rect: rect, rail: rail, top: railY) - rail.gap
-        _ = drawWeather(ctx: ctx, rect: rect, rail: rail, top: railY)
+        railY = drawWeather(ctx: ctx, rect: rect, rail: rail, top: railY) - rail.gap
+        _ = drawTournaments(ctx: ctx, rect: rect, rail: rail, top: railY)
         let tipTop = drawTip(ctx: ctx, rect: rect, rail: rail)
         drawDrill(ctx: ctx, rect: rect, rail: rail, bottom: tipTop + rail.gap)
         drawScoreboard(ctx: ctx, rect: rect)
@@ -1415,6 +1424,103 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.setLineWidth(1)
         ctx.addPath(path); ctx.strokePath()
         label.draw(at: NSPoint(x: pill.minX + padX, y: pill.minY + (height - sz.height) / 2))
+    }
+
+    // MARK: - Tournaments card
+
+    // Tournament dates are calendar days with no time-of-day; format in UTC to
+    // match how TournamentProvider parses them, so the day never shifts under
+    // a non-UTC system time zone.
+    private static let tournamentDateFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        f.timeZone = TimeZone(identifier: "UTC")
+        return f
+    }()
+
+    private func drawTournaments(ctx: CGContext, rect: NSRect, rail: Rail, top: CGFloat) -> CGFloat {
+        guard let provider = tournamentProvider else { return top }
+        let kSize = rect.height * 0.0135
+        let kickerH = kSize * 1.6
+        let rowSize = rect.height * 0.0165
+        let lineH = rowSize * 1.6
+        let maxW = rail.width - rail.pad * 2
+
+        if let unsupported = provider.unsupportedRegion {
+            let msg = "No tracked tournament region within 100 mi — nearest is "
+                + "\(unsupported.metroName), \(unsupported.metroState) "
+                + "(~\(Int(unsupported.distanceMiles.rounded())) mi away)."
+            let bodyAttrs = textAttrs(rowSize, .regular, alpha: 0.60)
+            let bodyAS = NSAttributedString(string: msg, attributes: bodyAttrs)
+            let bodyH = ceil(bodyAS.boundingRect(with: NSSize(width: maxW, height: 1000),
+                                                 options: .usesLineFragmentOrigin).height)
+            let contentH = kickerH + kSize * 0.5 + bodyH
+            let content = drawCard(ctx, rail, top: top, height: contentH + rail.pad * 2)
+            var y = content.maxY - kickerH
+            let glyph = drawSymbol("trophy.fill", at: CGPoint(x: content.minX, y: y + kSize * 0.05),
+                                   size: kSize * 1.15, alpha: 0.40)
+            NSAttributedString(string: "TOURNAMENTS", attributes: kickerAttrs(kSize))
+                .draw(at: NSPoint(x: glyph.maxX + kSize * 0.6, y: y))
+            y -= kSize * 0.5 + bodyH
+            bodyAS.draw(with: CGRect(x: content.minX, y: y, width: maxW, height: bodyH),
+                        options: .usesLineFragmentOrigin)
+            return content.minY - rail.pad
+        }
+
+        guard let snap = provider.snapshot else { return top }
+
+        let windowLabel = snap.windowMonths == 1 ? "1 MONTH" : "3 MONTHS"
+        let shown = Array(snap.entries.prefix(4))
+        let moreCount = snap.totalCount - shown.count
+
+        var contentH = kickerH + lineH * CGFloat(max(1, shown.count))
+        if !shown.isEmpty && moreCount > 0 { contentH += lineH * 0.7 }
+        let content = drawCard(ctx, rail, top: top, height: contentH + rail.pad * 2)
+
+        var y = content.maxY - kickerH
+        let glyph = drawSymbol("trophy.fill", at: CGPoint(x: content.minX, y: y + kSize * 0.05),
+                               size: kSize * 1.15, alpha: 0.40)
+        NSAttributedString(string: "TOURNAMENTS · \(snap.metroName.uppercased()) · \(windowLabel)",
+                           attributes: kickerAttrs(kSize))
+            .draw(at: NSPoint(x: glyph.maxX + kSize * 0.6, y: y))
+
+        if shown.isEmpty {
+            y -= lineH
+            NSAttributedString(string: "No tournaments scheduled nearby",
+                               attributes: textAttrs(rowSize, .regular, alpha: 0.40))
+                .draw(at: NSPoint(x: content.minX, y: y))
+        } else {
+            for entry in shown {
+                y -= lineH
+                drawTournamentRow(entry, atY: y, in: content, rowSize: rowSize, lineH: lineH)
+            }
+            if moreCount > 0 {
+                y -= lineH * 0.7
+                NSAttributedString(string: "+\(moreCount) more",
+                                   attributes: textAttrs(rowSize * 0.85, .regular, alpha: 0.40))
+                    .draw(at: NSPoint(x: content.minX, y: y))
+            }
+        }
+        return content.minY - rail.pad   // card bottom
+    }
+
+    private func drawTournamentRow(_ entry: TournamentSnapshot.Entry, atY y: CGFloat, in content: CGRect,
+                                   rowSize: CGFloat, lineH: CGFloat) {
+        var dateStr = Self.tournamentDateFmt.string(from: entry.startDate)
+        if let end = entry.endDate, end > entry.startDate {
+            dateStr += "–\(Self.tournamentDateFmt.string(from: end))"
+        }
+        NSAttributedString(string: dateStr,
+                           attributes: textAttrs(rowSize * 0.82, .medium, alpha: entry.isCanceled ? 0.30 : 0.50,
+                                                 monoDigits: true))
+            .draw(at: NSPoint(x: content.minX, y: y + rowSize * 0.09))
+
+        let titleX = content.minX + rowSize * 6.2
+        let name = entry.isCanceled ? "\(entry.name) (canceled)" : entry.name
+        NSAttributedString(string: name,
+                           attributes: textAttrs(rowSize, .regular, alpha: entry.isCanceled ? 0.35 : 0.80))
+            .draw(with: CGRect(x: titleX, y: y, width: content.maxX - titleX, height: lineH),
+                  options: .truncatesLastVisibleLine)
     }
 
     // MARK: - Pickleball fact card (bottom of the rail)

@@ -10,6 +10,10 @@ Weather comes from the free [Open-Meteo](https://open-meteo.com) API — no API 
 
 The rotating pickleball facts card can be toggled off in the same sheet.
 
+## Nearby tournaments
+
+Check **Show nearby tournaments** in the same sheet to add a card listing upcoming tournaments within 100 miles of your weather city, sourced from the [Pickleball Tournament API](https://pickleballtournamentapi.com). Choose whether to show the next 1 or 3 months. The API tracks ~25 major US metro areas, so this needs a weather city near one of those; if your weather city is too far from any tracked metro, the card explains that instead of showing stale or misleading data. Tournament listings refresh about once an hour.
+
 ## Build
 
 ```sh
