@@ -150,6 +150,13 @@ class PickleballScreensaverView: ScreenSaverView {
     private var ghostSpawnTimer: CGFloat = .random(in: 3...8)
     private let maxGhosts = 2
 
+    // Tournament card auto-scroll — cycles through pages of fetched entries,
+    // fading out/in at each page boundary
+    private var tournamentPageIndex = 0
+    private var tournamentCycleTimer: CGFloat = 0
+    private let tournamentPageInterval: CGFloat = 6.0   // seconds a page is shown
+    private let tournamentFadeDuration: CGFloat = 0.6   // seconds faded in/out at each edge
+
     // Rally state
     private var lastFrameTime: TimeInterval = 0
     private var faultTimer: CGFloat = 0
@@ -350,6 +357,12 @@ class PickleballScreensaverView: ScreenSaverView {
         // Overlay content keeps updating even during the fault pause
         weatherProvider?.updateIfNeeded()
         tournamentProvider?.updateIfNeeded()
+
+        tournamentCycleTimer += dt
+        if tournamentCycleTimer >= tournamentPageInterval {
+            tournamentCycleTimer = 0
+            tournamentPageIndex += 1
+        }
 
         if gameBannerTimer > 0 { gameBannerTimer -= dt }
 
@@ -672,17 +685,17 @@ class PickleballScreensaverView: ScreenSaverView {
         drawNet(ctx: ctx)
         for s in sprites.filter({ $0.wz <= 0.5 }).sorted(by: { $0.depth > $1.depth }) { s.draw() }
 
-        // Widget-style left rail: clock hero, then weather / tournaments cards
-        // flowing down, with drill-of-the-day pinned to the bottom margin.
+        // Widget-style left rail: weather / tournaments cards flowing down from
+        // the top margin, with drill-of-the-day pinned to the bottom margin.
         let rail = railMetrics(rect)
         var railY = rect.height * 0.95
-        railY = drawClock(ctx: ctx, rect: rect, rail: rail, top: railY) - rail.gap
         let afterWeather = drawWeather(ctx: ctx, rect: rect, rail: rail, top: railY)
         // Weather can no-op (disabled, or no snapshot yet) — only spend a gap if it actually drew a card
         if afterWeather != railY { railY = afterWeather - rail.gap }
         _ = drawTournaments(ctx: ctx, rect: rect, rail: rail, top: railY)
         drawDrill(ctx: ctx, rect: rect, rail: rail, bottom: rect.height * 0.05)
         drawScoreboard(ctx: ctx, rect: rect)
+        drawCourtClock(ctx: ctx, rect: rect)
     }
 
     // MARK: - Background
@@ -1112,7 +1125,7 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func railMetrics(_ rect: NSRect) -> Rail {
         Rail(x: rect.height * 0.05,
-             width: min(rect.width * 0.32, rect.height * 0.75),
+             width: min(rect.width * 0.35, rect.height * 0.82),
              pad: rect.height * 0.018,
              corner: rect.height * 0.022,
              gap: rect.height * 0.02)
@@ -1145,14 +1158,12 @@ class PickleballScreensaverView: ScreenSaverView {
         textAttrs(size, .semibold, alpha: alpha, color: color, kern: size * 0.14)
     }
 
-    // Translucent rounded "glass" panel; returns the padded content rect
-    @discardableResult
-    private func drawCard(_ ctx: CGContext, _ rail: Rail, top: CGFloat, height: CGFloat) -> CGRect {
-        let rect = CGRect(x: rail.x, y: top - height, width: rail.width, height: height)
-        let path = CGPath(roundedRect: rect, cornerWidth: rail.corner, cornerHeight: rail.corner,
-                          transform: nil)
+    // Translucent rounded "glass" panel background, shared by the rail cards
+    // and the floating court clock
+    private func drawGlassPanel(_ ctx: CGContext, rect: CGRect, corner: CGFloat, shadowBlur: CGFloat) {
+        let path = CGPath(roundedRect: rect, cornerWidth: corner, cornerHeight: corner, transform: nil)
         ctx.saveGState()
-        ctx.setShadow(offset: CGSize(width: 0, height: -rail.pad * 0.3), blur: rail.pad,
+        ctx.setShadow(offset: CGSize(width: 0, height: -shadowBlur * 0.3), blur: shadowBlur,
                       color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.22))
         ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.75))
         ctx.addPath(path); ctx.fillPath()
@@ -1160,6 +1171,13 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.16))
         ctx.setLineWidth(1)
         ctx.addPath(path); ctx.strokePath()
+    }
+
+    // Translucent rounded "glass" panel; returns the padded content rect
+    @discardableResult
+    private func drawCard(_ ctx: CGContext, _ rail: Rail, top: CGFloat, height: CGFloat) -> CGRect {
+        let rect = CGRect(x: rail.x, y: top - height, width: rail.width, height: height)
+        drawGlassPanel(ctx, rect: rect, corner: rail.corner, shadowBlur: rail.pad)
         return rect.insetBy(dx: rail.pad, dy: rail.pad)
     }
 
@@ -1179,38 +1197,57 @@ class PickleballScreensaverView: ScreenSaverView {
         return rect
     }
 
-    // MARK: - Clock (rail hero, no card)
+    // MARK: - Clock (floating glass card over the front kitchen)
 
-    private func drawClock(ctx: CGContext, rect: NSRect, rail: Rail, top: CGFloat) -> CGFloat {
+    // Anchored to the near/front kitchen quad (between the near kitchen line and the
+    // net), computed at yaw = 0 so the card doesn't jump during the once-a-minute
+    // turntable spin — the same trick `fit` uses to keep its own framing stable.
+    private func drawCourtClock(ctx: CGContext, rect: NSRect) {
         let now = Date()
-        let tSize = rect.height * 0.075
-        let dSize = rect.height * 0.026
+        let tSize = rect.height * 0.09
+        let dSize = rect.height * 0.030
+        let pad = rect.height * 0.022
+        let corner = rect.height * 0.022
+
+        let yaw = courtYaw; courtYaw = 0
+        let corners = [proj(-1, kitchenNearZ, 0), proj(1, kitchenNearZ, 0),
+                       proj(1, 0.5, 0), proj(-1, 0.5, 0)]
+        courtYaw = yaw
+        let anchor = CGPoint(x: corners.reduce(0) { $0 + $1.x } / 4,
+                            y: corners.reduce(0) { $0 + $1.y } / 4)
+
+        let timeAS = NSAttributedString(string: timeFmt.string(from: now),
+                                        attributes: textAttrs(tSize, .thin, alpha: 0.95, monoDigits: true))
+        let dateAS = NSAttributedString(string: dayFmt.string(from: now),
+                                        attributes: textAttrs(dSize, .light, alpha: 0.60))
+        let timeSz = timeAS.size(), dateSz = dateAS.size()
+
+        let contentW = max(timeSz.width, dateSz.width)
+        let contentH = tSize * 1.05 + dSize * 1.7
+        let panel = CGRect(x: anchor.x - contentW / 2 - pad, y: anchor.y - contentH / 2 - pad,
+                           width: contentW + pad * 2, height: contentH + pad * 2)
+        drawGlassPanel(ctx, rect: panel, corner: corner, shadowBlur: pad)
 
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: 0, height: -tSize * 0.03), blur: tSize * 0.12,
                       color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.60))
-        let timeY = top - tSize * 1.05
-        NSAttributedString(string: timeFmt.string(from: now),
-                           attributes: textAttrs(tSize, .thin, alpha: 0.95, monoDigits: true))
-            .draw(at: NSPoint(x: rail.x, y: timeY))
+        let timeY = panel.maxY - pad - tSize * 1.05
+        timeAS.draw(at: NSPoint(x: panel.midX - timeSz.width / 2, y: timeY))
         let dateY = timeY - dSize * 1.5
-        NSAttributedString(string: dayFmt.string(from: now),
-                           attributes: textAttrs(dSize, .light, alpha: 0.60))
-            .draw(at: NSPoint(x: rail.x, y: dateY))
+        dateAS.draw(at: NSPoint(x: panel.midX - dateSz.width / 2, y: dateY))
         ctx.restoreGState()
-        return dateY - dSize * 0.2
     }
 
     // MARK: - Weather card
 
     private func drawWeather(ctx: CGContext, rect: NSRect, rail: Rail, top: CGFloat) -> CGFloat {
         guard let snap = weatherProvider?.snapshot else { return top }
-        let kSize = rect.height * 0.0135
+        let kSize = rect.height * 0.016
         let kickerH = kSize * 1.6
-        let bigSize = rect.height * 0.042
-        let rowSize = rect.height * 0.0165
+        let bigSize = rect.height * 0.052
+        let rowSize = rect.height * 0.020
         let rowH = rowSize * 1.6
-        let badgeH = rect.height * 0.026
+        let badgeH = rect.height * 0.032
 
         let rowCount: CGFloat = snap.tomorrowMax != nil ? 4 : 3
         let contentH = kickerH + bigSize * 1.35 + rowH * rowCount + rail.pad * 0.8 + badgeH
@@ -1317,9 +1354,9 @@ class PickleballScreensaverView: ScreenSaverView {
     private func drawTournaments(ctx: CGContext, rect: NSRect, rail: Rail, top: CGFloat) -> CGFloat {
         guard let provider = tournamentProvider else { return top }
         guard rail.width > rect.height * 0.12 else { return top }
-        let kSize = rect.height * 0.0135
+        let kSize = rect.height * 0.016
         let kickerH = kSize * 1.6
-        let rowSize = rect.height * 0.0165
+        let rowSize = rect.height * 0.020
         let lineH = rowSize * 1.6
         let maxW = rail.width - rail.pad * 2
 
@@ -1347,18 +1384,38 @@ class PickleballScreensaverView: ScreenSaverView {
         guard let snap = provider.snapshot else { return top }
 
         let windowLabel = snap.windowMonths == 1 ? "1 MONTH" : "3 MONTHS"
-        let shown = Array(snap.entries.prefix(4))
-        let moreCount = snap.totalCount - shown.count
+        let fetched = snap.entries
         let rowGap = rail.pad * 0.5
+        let perPage = 3
 
-        // The column is narrow, so each entry stacks its date above a
-        // (possibly two-line) name rather than putting them side by side —
-        // sizes are measured up front since drawCard needs the total height
-        // before anything is drawn.
-        let rowHeights = shown.map { tournamentRowHeight($0, rowSize: rowSize, width: maxW) }
-        var contentH = kickerH + rowHeights.reduce(0, +) + rowGap * CGFloat(max(0, shown.count - 1))
-        if shown.isEmpty { contentH += lineH }
-        if !shown.isEmpty && moreCount > 0 { contentH += lineH * 0.7 }
+        if fetched.isEmpty {
+            let contentH = kickerH + lineH
+            let content = drawCard(ctx, rail, top: top, height: contentH + rail.pad * 2)
+            var y = content.maxY - kickerH
+            let glyph = drawSymbol("trophy.fill", at: CGPoint(x: content.minX, y: y + kSize * 0.05),
+                                   size: kSize * 1.15, alpha: 0.40)
+            NSAttributedString(string: "TOURNAMENTS · \(snap.metroName.uppercased()) · \(windowLabel)",
+                               attributes: kickerAttrs(kSize))
+                .draw(at: NSPoint(x: glyph.maxX + kSize * 0.6, y: y))
+            y -= lineH
+            NSAttributedString(string: "No tournaments scheduled nearby",
+                               attributes: textAttrs(rowSize, .regular, alpha: 0.40))
+                .draw(at: NSPoint(x: content.minX, y: y))
+            return content.minY - rail.pad
+        }
+
+        // Auto-scroll: cycle a fixed-height page of `perPage` entries at a time so
+        // the card never has to resize as it rotates through everything fetched.
+        let numPages = Int(ceil(Double(fetched.count) / Double(perPage)))
+        let pageIdx = tournamentPageIndex % numPages
+        let pageStart = pageIdx * perPage
+        let shown = Array(fetched[pageStart..<min(fetched.count, pageStart + perPage)])
+        let moreCount = snap.totalCount - fetched.count   // beyond what we ever fetched
+        let showTrailer = moreCount > 0 && pageIdx == numPages - 1
+
+        let maxRowH = tournamentMaxRowHeight(rowSize: rowSize, width: maxW)
+        var contentH = kickerH + maxRowH * CGFloat(perPage) + rowGap * CGFloat(perPage - 1)
+        if moreCount > 0 { contentH += lineH * 0.7 }
         let content = drawCard(ctx, rail, top: top, height: contentH + rail.pad * 2)
 
         var y = content.maxY - kickerH
@@ -1368,25 +1425,35 @@ class PickleballScreensaverView: ScreenSaverView {
                            attributes: kickerAttrs(kSize))
             .draw(at: NSPoint(x: glyph.maxX + kSize * 0.6, y: y))
 
-        if shown.isEmpty {
-            y -= lineH
-            NSAttributedString(string: "No tournaments scheduled nearby",
-                               attributes: textAttrs(rowSize, .regular, alpha: 0.40))
-                .draw(at: NSPoint(x: content.minX, y: y))
-        } else {
-            for (i, entry) in shown.enumerated() {
-                if i > 0 { y -= rowGap }
-                y -= rowHeights[i]
-                drawTournamentRow(entry, top: y + rowHeights[i], in: content, rowSize: rowSize)
-            }
-            if moreCount > 0 {
-                y -= lineH * 0.7
-                NSAttributedString(string: "+\(moreCount) more",
-                                   attributes: textAttrs(rowSize * 0.85, .regular, alpha: 0.40))
-                    .draw(at: NSPoint(x: content.minX, y: y))
-            }
+        // Rows fade out/in at each page boundary; the header stays put so only
+        // the rotating content dims — the same alpha-scrub technique used for
+        // the ambient wallpaper ghosts.
+        let fadeAlpha: CGFloat = numPages <= 1 ? 1 : tournamentFadeAlpha()
+        ctx.saveGState()
+        ctx.setAlpha(fadeAlpha)
+        for (i, entry) in shown.enumerated() {
+            if i > 0 { y -= rowGap }
+            y -= maxRowH
+            drawTournamentRow(entry, top: y + maxRowH, in: content, rowSize: rowSize)
         }
+        if showTrailer {
+            y -= lineH * 0.7
+            NSAttributedString(string: "+\(moreCount) more",
+                               attributes: textAttrs(rowSize * 0.85, .regular, alpha: 0.40))
+                .draw(at: NSPoint(x: content.minX, y: y))
+        }
+        ctx.restoreGState()
         return content.minY - rail.pad   // card bottom
+    }
+
+    // Ramps 0→1 over the first `tournamentFadeDuration` seconds of a page, holds,
+    // then ramps back to 0 over the last `tournamentFadeDuration` before the swap.
+    private func tournamentFadeAlpha() -> CGFloat {
+        let t = tournamentCycleTimer
+        if t < tournamentFadeDuration { return t / tournamentFadeDuration }
+        let remaining = tournamentPageInterval - t
+        if remaining < tournamentFadeDuration { return max(0, remaining / tournamentFadeDuration) }
+        return 1
     }
 
     private func tournamentNameHeight(_ entry: TournamentSnapshot.Entry, rowSize: CGFloat, width: CGFloat) -> CGFloat {
@@ -1399,8 +1466,13 @@ class PickleballScreensaverView: ScreenSaverView {
         return min(naturalH, lineH * 2)   // cap at 2 lines; the rest truncates
     }
 
-    private func tournamentRowHeight(_ entry: TournamentSnapshot.Entry, rowSize: CGFloat, width: CGFloat) -> CGFloat {
-        rowSize * 0.78 * 1.3 + tournamentNameHeight(entry, rowSize: rowSize, width: width)
+    // Worst-case row height (a full 2-line name) so a page's card height never
+    // changes as auto-scroll rotates through entries of differing name length.
+    private func tournamentMaxRowHeight(rowSize: CGFloat, width: CGFloat) -> CGFloat {
+        let nameAttrs = textAttrs(rowSize, .regular, alpha: 0.85)
+        let lineH = ceil(NSAttributedString(string: "Ag", attributes: nameAttrs)
+            .boundingRect(with: NSSize(width: width, height: 1000), options: .usesLineFragmentOrigin).height)
+        return rowSize * 0.78 * 1.3 + lineH * 2
     }
 
     private func drawTournamentRow(_ entry: TournamentSnapshot.Entry, top y: CGFloat, in content: CGRect,
@@ -1429,11 +1501,11 @@ class PickleballScreensaverView: ScreenSaverView {
     private func drawDrill(ctx: CGContext, rect: NSRect, rail: Rail, bottom: CGFloat) {
         guard drillEnabled, let drill = PickleballDrills.drillOfTheDay(level: drillLevel) else { return }
 
-        let kSize = rect.height * 0.0135
+        let kSize = rect.height * 0.016
         let kickerH = kSize * 1.6
-        let titleSize = rect.height * 0.018
-        let metaSize = rect.height * 0.0135
-        let bodySize = rect.height * 0.016
+        let titleSize = rect.height * 0.022
+        let metaSize = rect.height * 0.016
+        let bodySize = rect.height * 0.019
         let maxW = rail.width - rail.pad * 2
 
         let titleAS = NSAttributedString(string: drill.name,

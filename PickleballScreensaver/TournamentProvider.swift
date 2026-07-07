@@ -170,7 +170,7 @@ final class TournamentProvider {
         comps.queryItems = [
             URLQueryItem(name: "city", value: metro.name),
             URLQueryItem(name: "window", value: settings.windowMonths == 1 ? "1m" : "3m"),
-            URLQueryItem(name: "pageSize", value: "8"),
+            URLQueryItem(name: "pageSize", value: "20"),
         ]
         guard let url = comps.url else { inFlight = false; return }
 
