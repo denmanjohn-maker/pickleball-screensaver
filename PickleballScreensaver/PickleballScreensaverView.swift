@@ -727,18 +727,17 @@ class PickleballScreensaverView: ScreenSaverView {
         for s in sprites.filter({ $0.wz <= 0.5 }).sorted(by: { $0.depth > $1.depth }) { s.draw() }
 
         // Widget-style left rail: clock hero, then agenda / weather cards
-        // flowing down, with the facts card pinned to the bottom margin.
+        // flowing down, with the facts card pinned to the bottom margin. A
+        // second, narrower column to its right (in the gap before the court)
+        // holds tournaments, so it doesn't stack underneath weather.
         let rail = railMetrics(rect)
         var railY = rect.height * 0.95
         railY = drawClock(ctx: ctx, rect: rect, rail: rail, top: railY) - rail.gap
         railY = drawAgenda(ctx: ctx, rect: rect, rail: rail, top: railY) - rail.gap
-        // drawWeather/drawTournaments return `top` unchanged when they have
-        // nothing to draw yet (no snapshot); only eat the gap when a card
-        // actually rendered, so a still-loading card doesn't shift the rest
-        // of the rail down.
-        let afterWeather = drawWeather(ctx: ctx, rect: rect, rail: rail, top: railY)
-        if afterWeather != railY { railY = afterWeather - rail.gap }
-        _ = drawTournaments(ctx: ctx, rect: rect, rail: rail, top: railY)
+        _ = drawWeather(ctx: ctx, rect: rect, rail: rail, top: railY)
+
+        let rail2 = secondRailMetrics(rect)
+        _ = drawTournaments(ctx: ctx, rect: rect, rail: rail2, top: rect.height * 0.95)
         let tipTop = drawTip(ctx: ctx, rect: rect, rail: rail)
         drawDrill(ctx: ctx, rect: rect, rail: rail, bottom: tipTop + rail.gap)
         drawScoreboard(ctx: ctx, rect: rect)
@@ -1177,6 +1176,24 @@ class PickleballScreensaverView: ScreenSaverView {
              gap: rect.height * 0.02)
     }
 
+    // A second, narrower column to the right of the main rail, in the gap
+    // between it and the court apron. The court's left edge is measured at
+    // yaw 0 (matching how `fit` itself frames the court, same as this
+    // method's sibling below), so this column's width doesn't jitter as the
+    // court spins in place every minute.
+    private func secondRailMetrics(_ rect: NSRect) -> Rail {
+        let rail = railMetrics(rect)
+        let x = rail.x + rail.width + rail.gap * 1.5
+        let yaw = courtYaw
+        courtYaw = 0
+        let courtLeft = [(-1.15, -0.05), (1.15, -0.05), (1.15, 1.05), (-1.15, 1.05)]
+            .map { proj(CGFloat($0.0), CGFloat($0.1), 0).x }
+            .min() ?? rect.width
+        courtYaw = yaw
+        let width = min(rail.width, max(0, courtLeft - x - rail.gap))
+        return Rail(x: x, width: width, pad: rail.pad, corner: rail.corner, gap: rail.gap)
+    }
+
     // SF Rounded variant of the system font; falls back to plain SF
     private func roundedFont(_ size: CGFloat, _ weight: NSFont.Weight, monoDigits: Bool = false) -> NSFont {
         let base = monoDigits ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
@@ -1445,6 +1462,10 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func drawTournaments(ctx: CGContext, rect: NSRect, rail: Rail, top: CGFloat) -> CGFloat {
         guard let provider = tournamentProvider else { return top }
+        // On a narrow-gap aspect ratio the second column can be squeezed
+        // almost to nothing before it reaches the court; skip rather than
+        // draw unreadably-truncated text.
+        guard rail.width > rect.height * 0.12 else { return top }
         let kSize = rect.height * 0.0135
         let kickerH = kSize * 1.6
         let rowSize = rect.height * 0.0165
@@ -1477,8 +1498,15 @@ class PickleballScreensaverView: ScreenSaverView {
         let windowLabel = snap.windowMonths == 1 ? "1 MONTH" : "3 MONTHS"
         let shown = Array(snap.entries.prefix(4))
         let moreCount = snap.totalCount - shown.count
+        let rowGap = rail.pad * 0.5
 
-        var contentH = kickerH + lineH * CGFloat(max(1, shown.count))
+        // The column is narrow, so each entry stacks its date above a
+        // (possibly two-line) name rather than putting them side by side —
+        // sizes are measured up front since drawCard needs the total height
+        // before anything is drawn.
+        let rowHeights = shown.map { tournamentRowHeight($0, rowSize: rowSize, width: maxW) }
+        var contentH = kickerH + rowHeights.reduce(0, +) + rowGap * CGFloat(max(0, shown.count - 1))
+        if shown.isEmpty { contentH += lineH }
         if !shown.isEmpty && moreCount > 0 { contentH += lineH * 0.7 }
         let content = drawCard(ctx, rail, top: top, height: contentH + rail.pad * 2)
 
@@ -1495,9 +1523,10 @@ class PickleballScreensaverView: ScreenSaverView {
                                attributes: textAttrs(rowSize, .regular, alpha: 0.40))
                 .draw(at: NSPoint(x: content.minX, y: y))
         } else {
-            for entry in shown {
-                y -= lineH
-                drawTournamentRow(entry, atY: y, in: content, rowSize: rowSize, lineH: lineH)
+            for (i, entry) in shown.enumerated() {
+                if i > 0 { y -= rowGap }
+                y -= rowHeights[i]
+                drawTournamentRow(entry, top: y + rowHeights[i], in: content, rowSize: rowSize)
             }
             if moreCount > 0 {
                 y -= lineH * 0.7
@@ -1509,23 +1538,39 @@ class PickleballScreensaverView: ScreenSaverView {
         return content.minY - rail.pad   // card bottom
     }
 
-    private func drawTournamentRow(_ entry: TournamentSnapshot.Entry, atY y: CGFloat, in content: CGRect,
-                                   rowSize: CGFloat, lineH: CGFloat) {
+    private func tournamentNameHeight(_ entry: TournamentSnapshot.Entry, rowSize: CGFloat, width: CGFloat) -> CGFloat {
+        let name = entry.isCanceled ? "\(entry.name) (canceled)" : entry.name
+        let nameAttrs = textAttrs(rowSize, .regular, alpha: 0.85)
+        let lineH = ceil(NSAttributedString(string: "Ag", attributes: nameAttrs)
+            .boundingRect(with: NSSize(width: width, height: 1000), options: .usesLineFragmentOrigin).height)
+        let naturalH = ceil(NSAttributedString(string: name, attributes: nameAttrs)
+            .boundingRect(with: NSSize(width: width, height: 1000), options: .usesLineFragmentOrigin).height)
+        return min(naturalH, lineH * 2)   // cap at 2 lines; the rest truncates
+    }
+
+    private func tournamentRowHeight(_ entry: TournamentSnapshot.Entry, rowSize: CGFloat, width: CGFloat) -> CGFloat {
+        rowSize * 0.78 * 1.3 + tournamentNameHeight(entry, rowSize: rowSize, width: width)
+    }
+
+    private func drawTournamentRow(_ entry: TournamentSnapshot.Entry, top y: CGFloat, in content: CGRect,
+                                   rowSize: CGFloat) {
         var dateStr = Self.tournamentDateFmt.string(from: entry.startDate)
         if let end = entry.endDate, end > entry.startDate {
             dateStr += "–\(Self.tournamentDateFmt.string(from: end))"
         }
+        let dateSize = rowSize * 0.78
         NSAttributedString(string: dateStr,
-                           attributes: textAttrs(rowSize * 0.82, .medium, alpha: entry.isCanceled ? 0.30 : 0.50,
+                           attributes: textAttrs(dateSize, .medium, alpha: entry.isCanceled ? 0.30 : 0.55,
                                                  monoDigits: true))
-            .draw(at: NSPoint(x: content.minX, y: y + rowSize * 0.09))
+            .draw(at: NSPoint(x: content.minX, y: y - dateSize * 1.05))
 
-        let titleX = content.minX + rowSize * 6.2
         let name = entry.isCanceled ? "\(entry.name) (canceled)" : entry.name
+        let nameH = tournamentNameHeight(entry, rowSize: rowSize, width: content.width)
+        let nameY = y - dateSize * 1.3 - nameH
         NSAttributedString(string: name,
-                           attributes: textAttrs(rowSize, .regular, alpha: entry.isCanceled ? 0.35 : 0.80))
-            .draw(with: CGRect(x: titleX, y: y, width: content.maxX - titleX, height: lineH),
-                  options: .truncatesLastVisibleLine)
+                           attributes: textAttrs(rowSize, .regular, alpha: entry.isCanceled ? 0.35 : 0.85))
+            .draw(with: CGRect(x: content.minX, y: nameY, width: content.width, height: nameH),
+                  options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
     }
 
     // MARK: - Pickleball fact card (bottom of the rail)
