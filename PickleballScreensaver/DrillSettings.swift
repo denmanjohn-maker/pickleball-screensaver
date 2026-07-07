@@ -2,7 +2,7 @@ import Foundation
 import ScreenSaver
 
 /// Persisted toggles for the drill-of-the-day card.
-struct TipSettings {
+struct DrillSettings {
     var drillEnabled = true
     var drillLevel = "all"   // "all" or a DUPR tier: "3.0", "3.5", "4.0", "5.0"
 
@@ -11,8 +11,8 @@ struct TipSettings {
         ScreenSaverDefaults(forModuleWithName: moduleName)
     }
 
-    static func load() -> TipSettings {
-        var s = TipSettings()
+    static func load() -> DrillSettings {
+        var s = DrillSettings()
         if let d = defaults {
             if d.object(forKey: "ShowDrillOfTheDay") != nil {
                 s.drillEnabled = d.bool(forKey: "ShowDrillOfTheDay")

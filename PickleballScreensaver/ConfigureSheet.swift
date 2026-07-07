@@ -56,7 +56,7 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
     private var settings = PhotoSettings.load()
     private var weatherSettings = WeatherSettings.load()
     private var tournamentSettings = TournamentSettings.load()
-    private var tipSettings = TipSettings.load()
+    private var drillSettings = DrillSettings.load()
     private var pendingPlace: GeocodedPlace?
 
     private let intervalPopup = NSPopUpButton()
@@ -97,7 +97,7 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         settings = PhotoSettings.load()
         weatherSettings = WeatherSettings.load()
         tournamentSettings = TournamentSettings.load()
-        tipSettings = TipSettings.load()
+        drillSettings = DrillSettings.load()
         pendingPlace = nil
         if let idx = PhotoSettings.intervalChoices.firstIndex(of: settings.intervalSeconds) {
             intervalPopup.selectItem(at: idx)
@@ -114,8 +114,8 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         celsiusRadio.state = weatherSettings.useFahrenheit ? .off : .on
         tournamentsCheck.state = tournamentSettings.enabled ? .on : .off
         tournamentsWindowPopup.selectItem(at: Self.tournamentWindowChoices.firstIndex(of: tournamentSettings.windowMonths) ?? 1)
-        drillCheck.state = tipSettings.drillEnabled ? .on : .off
-        drillLevelPopup.selectItem(at: Self.drillLevelChoices.firstIndex(of: tipSettings.drillLevel) ?? 0)
+        drillCheck.state = drillSettings.drillEnabled ? .on : .off
+        drillLevelPopup.selectItem(at: Self.drillLevelChoices.firstIndex(of: drillSettings.drillLevel) ?? 0)
         updateFolderLabel()
         refreshPhotoSyncStatus()
         updateEnabledState()
@@ -339,9 +339,9 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         tournamentSettings.enabled = tournamentsCheck.state == .on && weatherSettings.enabled
         tournamentSettings.windowMonths = Self.tournamentWindowChoices[max(0, tournamentsWindowPopup.indexOfSelectedItem)]
         tournamentSettings.save()
-        tipSettings.drillEnabled = drillCheck.state == .on
-        tipSettings.drillLevel = Self.drillLevelChoices[max(0, drillLevelPopup.indexOfSelectedItem)]
-        tipSettings.save()
+        drillSettings.drillEnabled = drillCheck.state == .on
+        drillSettings.drillLevel = Self.drillLevelChoices[max(0, drillLevelPopup.indexOfSelectedItem)]
+        drillSettings.save()
         dismiss(.OK)
     }
 

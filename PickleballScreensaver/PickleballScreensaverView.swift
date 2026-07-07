@@ -188,9 +188,9 @@ class PickleballScreensaverView: ScreenSaverView {
         animationTimeInterval = 1.0 / 60.0
         wantsLayer = true
         resetRally(leftServes: leftServing)
-        let tipSettings = TipSettings.load()
-        drillEnabled = tipSettings.drillEnabled
-        drillLevel = tipSettings.drillLevel
+        let drillSettings = DrillSettings.load()
+        drillEnabled = drillSettings.drillEnabled
+        drillLevel = drillSettings.drillLevel
         // File loading and networking stay out of the tiny System Settings preview
         if !isPreview {
             let photoSettings = PhotoSettings.load()
