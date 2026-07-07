@@ -20,7 +20,5 @@
 	<string>1</string>
 	<key>NSPrincipalClass</key>
 	<string>PickleballScreensaver.PickleballScreensaverView</string>
-	<key>NSCalendarsUsageDescription</key>
-	<string>Pickleball Screensaver displays today's calendar events on the court.</string>
 </dict>
 </plist>

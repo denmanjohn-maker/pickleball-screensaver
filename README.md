@@ -1,14 +1,12 @@
 # pickleball-screensaver
 
-A macOS screensaver that renders a stylized pickleball court, scoreboard, calendar overlays, and photo callouts on the blue back-court quadrants.
+A macOS screensaver that renders a stylized pickleball court, scoreboard, and photo callouts on the blue back-court quadrants.
 
-The left rail of widget-style cards shows the clock, a two-day agenda from Calendar, current weather with a "good day to play?" badge, and rotating pickleball facts.
+The left rail of widget-style cards shows the clock, current weather with a "good day to play?" badge, nearby tournaments, and drill of the day.
 
-## Weather and tips
+## Weather
 
 Weather comes from the free [Open-Meteo](https://open-meteo.com) API — no API key needed. In the screensaver's **Options…** sheet, check **Show weather**, type a city, click **Look Up**, and pick °F or °C. The forecast refreshes every 30 minutes while the screensaver runs.
-
-The rotating pickleball facts card can be toggled off in the same sheet.
 
 ## Nearby tournaments
 

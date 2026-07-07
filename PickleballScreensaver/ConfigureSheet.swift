@@ -78,7 +78,6 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
     private let tournamentsWindowPopup = NSPopUpButton()
     private let tournamentsHintLabel = NSTextField(wrappingLabelWithString:
         "Uses the weather city above — works best near a major US metro area.")
-    private let tipsCheck = NSButton(checkboxWithTitle: "Show pickleball tips & facts", target: nil, action: nil)
     private let drillCheck = NSButton(checkboxWithTitle: "Show drill of the day", target: nil, action: nil)
     private let drillLevelPopup = NSPopUpButton()
 
@@ -115,7 +114,6 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         celsiusRadio.state = weatherSettings.useFahrenheit ? .off : .on
         tournamentsCheck.state = tournamentSettings.enabled ? .on : .off
         tournamentsWindowPopup.selectItem(at: Self.tournamentWindowChoices.firstIndex(of: tournamentSettings.windowMonths) ?? 1)
-        tipsCheck.state = tipSettings.enabled ? .on : .off
         drillCheck.state = tipSettings.drillEnabled ? .on : .off
         drillLevelPopup.selectItem(at: Self.drillLevelChoices.firstIndex(of: tipSettings.drillLevel) ?? 0)
         updateFolderLabel()
@@ -195,7 +193,6 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
             tournamentsCheck,
             indent(hstack([NSTextField(labelWithString: "Show:"), tournamentsWindowPopup])),
             indent(tournamentsHintLabel),
-            tipsCheck,
             drillCheck,
             indent(hstack([NSTextField(labelWithString: "Drill level:"), drillLevelPopup])),
             hstack([spacer(), cancelButton, okButton]),
@@ -342,7 +339,6 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         tournamentSettings.enabled = tournamentsCheck.state == .on && weatherSettings.enabled
         tournamentSettings.windowMonths = Self.tournamentWindowChoices[max(0, tournamentsWindowPopup.indexOfSelectedItem)]
         tournamentSettings.save()
-        tipSettings.enabled = tipsCheck.state == .on
         tipSettings.drillEnabled = drillCheck.state == .on
         tipSettings.drillLevel = Self.drillLevelChoices[max(0, drillLevelPopup.indexOfSelectedItem)]
         tipSettings.save()

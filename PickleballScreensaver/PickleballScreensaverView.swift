@@ -1,6 +1,5 @@
 import ScreenSaver
 import AppKit
-import EventKit
 import CoreImage
 import CoreImage.CIFilterBuiltins
 
@@ -122,25 +121,11 @@ class PickleballScreensaverView: ScreenSaverView {
     private let blueBox    = CGColor(red: 0.13, green: 0.32, blue: 0.62, alpha: 1)
     private let whiteLine  = CGColor(red: 1, green: 1, blue: 1, alpha: 0.95)
 
-    // Calendar (refetched every 5 min and on EKEventStoreChanged)
-    private let eventStore = EKEventStore()
-    private var todayEvents: [EKEvent] = []
-    private var tomorrowEvents: [EKEvent] = []
-    private var lastEventFetch: TimeInterval = 0
-
     // Weather (fetched by WeatherProvider from the animation loop)
     private var weatherProvider: WeatherProvider?
 
     // Nearby tournaments (fetched by TournamentProvider from the animation loop)
     private var tournamentProvider: TournamentProvider?
-
-    // Rotating pickleball facts
-    private var tipsEnabled = true
-    private var tipOrder = Array(PickleballFacts.all.indices).shuffled()
-    private var tipIndex = 0
-    private var tipTimer: CGFloat = 0
-    private let tipPeriod: CGFloat = 30.0
-    private let tipFadeSecs: CGFloat = 0.5
 
     // Drill of the day (deterministic per calendar day)
     private var drillEnabled = true
@@ -203,11 +188,7 @@ class PickleballScreensaverView: ScreenSaverView {
         animationTimeInterval = 1.0 / 60.0
         wantsLayer = true
         resetRally(leftServes: leftServing)
-        fetchUpcomingEvents()
-        NotificationCenter.default.addObserver(self, selector: #selector(eventStoreChanged),
-                                               name: .EKEventStoreChanged, object: eventStore)
         let tipSettings = TipSettings.load()
-        tipsEnabled = tipSettings.enabled
         drillEnabled = tipSettings.drillEnabled
         drillLevel = tipSettings.drillLevel
         // File loading and networking stay out of the tiny System Settings preview
@@ -223,39 +204,6 @@ class PickleballScreensaverView: ScreenSaverView {
             let tournamentSettings = TournamentSettings.load()
             if tournamentSettings.enabled && weatherSettings.hasLocation {
                 tournamentProvider = TournamentProvider(settings: tournamentSettings, weatherSettings: weatherSettings)
-            }
-        }
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    @objc private func eventStoreChanged() {
-        fetchUpcomingEvents()
-    }
-
-    private func fetchUpcomingEvents() {
-        lastEventFetch = Date().timeIntervalSinceReferenceDate
-        let request = { [weak self] in
-            guard let self else { return }
-            let cal = Calendar.current
-            let start = cal.startOfDay(for: Date())
-            let tomorrowStart = cal.date(byAdding: .day, value: 1, to: start)!
-            let end = cal.date(byAdding: .day, value: 2, to: start)!
-            let pred = self.eventStore.predicateForEvents(withStart: start, end: end, calendars: nil)
-            let events = self.eventStore.events(matching: pred)
-                .sorted { $0.startDate < $1.startDate }
-            DispatchQueue.main.async {
-                self.todayEvents = events.filter { $0.startDate < tomorrowStart }
-                self.tomorrowEvents = events.filter { $0.startDate >= tomorrowStart }
-            }
-        }
-        if EKEventStore.authorizationStatus(for: .event) == .fullAccess {
-            request()
-        } else {
-            eventStore.requestFullAccessToEvents { granted, _ in
-                if granted { request() }
             }
         }
     }
@@ -402,8 +350,6 @@ class PickleballScreensaverView: ScreenSaverView {
         // Overlay content keeps updating even during the fault pause
         weatherProvider?.updateIfNeeded()
         tournamentProvider?.updateIfNeeded()
-        updateTip(dt: dt)
-        if now - lastEventFetch > 300 { fetchUpcomingEvents() }
 
         if gameBannerTimer > 0 { gameBannerTimer -= dt }
 
@@ -726,20 +672,16 @@ class PickleballScreensaverView: ScreenSaverView {
         drawNet(ctx: ctx)
         for s in sprites.filter({ $0.wz <= 0.5 }).sorted(by: { $0.depth > $1.depth }) { s.draw() }
 
-        // Widget-style left rail: clock hero, then agenda / weather cards
-        // flowing down, with the facts card pinned to the bottom margin. A
-        // second, narrower column to its right (in the gap before the court)
-        // holds tournaments, so it doesn't stack underneath weather.
+        // Widget-style left rail: clock hero, then weather / tournaments cards
+        // flowing down, with drill-of-the-day pinned to the bottom margin.
         let rail = railMetrics(rect)
         var railY = rect.height * 0.95
         railY = drawClock(ctx: ctx, rect: rect, rail: rail, top: railY) - rail.gap
-        railY = drawAgenda(ctx: ctx, rect: rect, rail: rail, top: railY) - rail.gap
-        _ = drawWeather(ctx: ctx, rect: rect, rail: rail, top: railY)
-
-        let rail2 = secondRailMetrics(rect)
-        _ = drawTournaments(ctx: ctx, rect: rect, rail: rail2, top: rect.height * 0.95)
-        let tipTop = drawTip(ctx: ctx, rect: rect, rail: rail)
-        drawDrill(ctx: ctx, rect: rect, rail: rail, bottom: tipTop + rail.gap)
+        let afterWeather = drawWeather(ctx: ctx, rect: rect, rail: rail, top: railY)
+        // Weather can no-op (disabled, or no snapshot yet) — only spend a gap if it actually drew a card
+        if afterWeather != railY { railY = afterWeather - rail.gap }
+        _ = drawTournaments(ctx: ctx, rect: rect, rail: rail, top: railY)
+        drawDrill(ctx: ctx, rect: rect, rail: rail, bottom: rect.height * 0.05)
         drawScoreboard(ctx: ctx, rect: rect)
     }
 
@@ -1170,28 +1112,10 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func railMetrics(_ rect: NSRect) -> Rail {
         Rail(x: rect.height * 0.05,
-             width: min(rect.width * 0.24, rect.height * 0.55),
+             width: min(rect.width * 0.32, rect.height * 0.75),
              pad: rect.height * 0.018,
              corner: rect.height * 0.022,
              gap: rect.height * 0.02)
-    }
-
-    // A second, narrower column to the right of the main rail, in the gap
-    // between it and the court apron. The court's left edge is measured at
-    // yaw 0 (matching how `fit` itself frames the court, same as this
-    // method's sibling below), so this column's width doesn't jitter as the
-    // court spins in place every minute.
-    private func secondRailMetrics(_ rect: NSRect) -> Rail {
-        let rail = railMetrics(rect)
-        let x = rail.x + rail.width + rail.gap * 1.5
-        let yaw = courtYaw
-        courtYaw = 0
-        let courtLeft = [(-1.15, -0.05), (1.15, -0.05), (1.15, 1.05), (-1.15, 1.05)]
-            .map { proj(CGFloat($0.0), CGFloat($0.1), 0).x }
-            .min() ?? rect.width
-        courtYaw = yaw
-        let width = min(rail.width, max(0, courtLeft - x - rail.gap))
-        return Rail(x: x, width: width, pad: rail.pad, corner: rail.corner, gap: rail.gap)
     }
 
     // SF Rounded variant of the system font; falls back to plain SF
@@ -1275,76 +1199,6 @@ class PickleballScreensaverView: ScreenSaverView {
             .draw(at: NSPoint(x: rail.x, y: dateY))
         ctx.restoreGState()
         return dateY - dSize * 0.2
-    }
-
-    // MARK: - Agenda card (today + tomorrow)
-
-    private func drawAgenda(ctx: CGContext, rect: NSRect, rail: Rail, top: CGFloat) -> CGFloat {
-        let kSize = rect.height * 0.0135
-        let kickerH = kSize * 1.6
-        let rowSize = rect.height * 0.0165
-        let lineH = rowSize * 1.6
-        let sectionGap = rail.pad * 0.7
-
-        let today = Array(todayEvents.prefix(4))
-        let tomorrow = Array(tomorrowEvents.prefix(3))
-
-        var contentH = kickerH + lineH * CGFloat(max(1, today.count))
-        if !tomorrow.isEmpty { contentH += sectionGap + kickerH + lineH * CGFloat(tomorrow.count) }
-        let content = drawCard(ctx, rail, top: top, height: contentH + rail.pad * 2)
-
-        let now = Date()
-        // First event still in progress or upcoming gets the accent highlight
-        let nextEvent = today.first { !$0.isAllDay && $0.endDate > now }
-
-        var y = content.maxY - kickerH
-        let glyph = drawSymbol("calendar", at: CGPoint(x: content.minX, y: y + kSize * 0.05),
-                               size: kSize * 1.15, alpha: 0.40)
-        NSAttributedString(string: "TODAY", attributes: kickerAttrs(kSize))
-            .draw(at: NSPoint(x: glyph.maxX + kSize * 0.6, y: y))
-
-        if today.isEmpty {
-            y -= lineH
-            NSAttributedString(string: "No events", attributes: textAttrs(rowSize, .regular, alpha: 0.40))
-                .draw(at: NSPoint(x: content.minX, y: y))
-        } else {
-            for event in today {
-                y -= lineH
-                drawEventRow(event, atY: y, in: content, rowSize: rowSize, lineH: lineH,
-                             highlighted: event === nextEvent,
-                             dimmed: !event.isAllDay && event.endDate <= now)
-            }
-        }
-
-        if !tomorrow.isEmpty {
-            y -= sectionGap + kickerH
-            NSAttributedString(string: "TOMORROW", attributes: kickerAttrs(kSize))
-                .draw(at: NSPoint(x: content.minX, y: y))
-            for event in tomorrow {
-                y -= lineH
-                drawEventRow(event, atY: y, in: content, rowSize: rowSize, lineH: lineH,
-                             highlighted: false, dimmed: false)
-            }
-        }
-        return content.minY - rail.pad   // card bottom
-    }
-
-    private func drawEventRow(_ event: EKEvent, atY y: CGFloat, in content: CGRect,
-                              rowSize: CGFloat, lineH: CGFloat, highlighted: Bool, dimmed: Bool) {
-        let timeStr = event.isAllDay ? "All day" : timeFmt.string(from: event.startDate)
-        NSAttributedString(string: timeStr,
-                           attributes: textAttrs(rowSize * 0.82, .medium,
-                                                 alpha: highlighted ? 0.95 : (dimmed ? 0.30 : 0.50),
-                                                 color: highlighted ? accentYellow : nil,
-                                                 monoDigits: true))
-            .draw(at: NSPoint(x: content.minX, y: y + rowSize * 0.09))
-
-        let titleX = content.minX + rowSize * 4.6
-        NSAttributedString(string: event.title ?? "",
-                           attributes: textAttrs(rowSize, highlighted ? .semibold : .regular,
-                                                 alpha: dimmed ? 0.35 : (highlighted ? 0.95 : 0.80)))
-            .draw(with: CGRect(x: titleX, y: y, width: content.maxX - titleX, height: lineH),
-                  options: .truncatesLastVisibleLine)
     }
 
     // MARK: - Weather card
@@ -1462,9 +1316,6 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func drawTournaments(ctx: CGContext, rect: NSRect, rail: Rail, top: CGFloat) -> CGFloat {
         guard let provider = tournamentProvider else { return top }
-        // On a narrow-gap aspect ratio the second column can be squeezed
-        // almost to nothing before it reaches the court; skip rather than
-        // draw unreadably-truncated text.
         guard rail.width > rect.height * 0.12 else { return top }
         let kSize = rect.height * 0.0135
         let kickerH = kSize * 1.6
@@ -1573,65 +1424,7 @@ class PickleballScreensaverView: ScreenSaverView {
                   options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
     }
 
-    // MARK: - Pickleball fact card (bottom of the rail)
-
-    private func updateTip(dt: CGFloat) {
-        guard tipsEnabled else { return }
-        tipTimer += dt
-        if tipTimer >= tipPeriod {
-            tipTimer = 0
-            tipIndex += 1
-            if tipIndex >= tipOrder.count { tipOrder.shuffle(); tipIndex = 0 }
-        }
-    }
-
-    // 1 while showing; eases to 0 at the swap boundaries
-    private var tipAlpha: CGFloat {
-        if tipTimer < tipFadeSecs { return tipTimer / tipFadeSecs }
-        if tipTimer > tipPeriod - tipFadeSecs { return (tipPeriod - tipTimer) / tipFadeSecs }
-        return 1
-    }
-
-    // Returns the card's top edge so the drill card can stack above it
-    @discardableResult
-    private func drawTip(ctx: CGContext, rect: NSRect, rail: Rail) -> CGFloat {
-        let cardBottom = rect.height * 0.05
-        // With tips off the drill card takes the bottom slot (caller adds rail.gap)
-        guard tipsEnabled else { return cardBottom - rail.gap }
-        let fact = PickleballFacts.all[tipOrder[tipIndex]]
-
-        let kSize = rect.height * 0.0135
-        let kickerH = kSize * 1.6
-        let bodySize = rect.height * 0.016
-        let bodyAttrs = textAttrs(bodySize, .regular, alpha: 0.85)
-        let maxW = rail.width - rail.pad * 2
-        let bodyAS = NSAttributedString(string: fact, attributes: bodyAttrs)
-        let bodyH = ceil(bodyAS.boundingRect(with: NSSize(width: maxW, height: 1000),
-                                             options: .usesLineFragmentOrigin).height)
-        let contentH = kickerH + kSize * 0.5 + bodyH
-        let cardTop = cardBottom + contentH + rail.pad * 2
-        let alpha = tipAlpha
-        guard alpha > 0 else { return cardTop }
-
-        // Card and text fade together across the 30 s rotation
-        ctx.saveGState()
-        ctx.setAlpha(alpha)
-        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-        let content = drawCard(ctx, rail, top: cardTop,
-                               height: contentH + rail.pad * 2)
-        let y = content.maxY - kickerH
-        let bulb = drawSymbol("lightbulb.fill", at: CGPoint(x: content.minX, y: y + kSize * 0.05),
-                              size: kSize * 1.15, alpha: 0.85, color: accentYellow)
-        NSAttributedString(string: "PICKLEBALL FACT", attributes: kickerAttrs(kSize))
-            .draw(at: NSPoint(x: bulb.maxX + kSize * 0.6, y: y))
-        bodyAS.draw(with: CGRect(x: content.minX, y: content.minY, width: maxW, height: bodyH),
-                    options: .usesLineFragmentOrigin)
-        ctx.endTransparencyLayer()
-        ctx.restoreGState()
-        return cardTop
-    }
-
-    // MARK: - Drill of the day card (above the fact card)
+    // MARK: - Drill of the day card (pinned to the bottom margin)
 
     private func drawDrill(ctx: CGContext, rect: NSRect, rail: Rail, bottom: CGFloat) {
         guard drillEnabled, let drill = PickleballDrills.drillOfTheDay(level: drillLevel) else { return }
