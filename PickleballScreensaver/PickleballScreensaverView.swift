@@ -1197,44 +1197,27 @@ class PickleballScreensaverView: ScreenSaverView {
         return rect
     }
 
-    // MARK: - Clock (floating glass card over the front kitchen)
+    // MARK: - Clock (bottom-right corner, no card)
 
-    // Anchored to the near/front kitchen quad (between the near kitchen line and the
-    // net), computed at yaw = 0 so the card doesn't jump during the once-a-minute
-    // turntable spin — the same trick `fit` uses to keep its own framing stable.
     private func drawCourtClock(ctx: CGContext, rect: NSRect) {
         let now = Date()
         let tSize = rect.height * 0.09
         let dSize = rect.height * 0.030
-        let pad = rect.height * 0.022
-        let corner = rect.height * 0.022
-
-        let yaw = courtYaw; courtYaw = 0
-        let corners = [proj(-1, kitchenNearZ, 0), proj(1, kitchenNearZ, 0),
-                       proj(1, 0.5, 0), proj(-1, 0.5, 0)]
-        courtYaw = yaw
-        let anchor = CGPoint(x: corners.reduce(0) { $0 + $1.x } / 4,
-                            y: corners.reduce(0) { $0 + $1.y } / 4)
+        let margin = rect.height * 0.05
 
         let timeAS = NSAttributedString(string: timeFmt.string(from: now),
-                                        attributes: textAttrs(tSize, .thin, alpha: 0.95, monoDigits: true))
+                                        attributes: textAttrs(tSize, .bold, alpha: 0.95, monoDigits: true))
         let dateAS = NSAttributedString(string: dayFmt.string(from: now),
-                                        attributes: textAttrs(dSize, .light, alpha: 0.60))
+                                        attributes: textAttrs(dSize, .semibold, alpha: 0.60))
         let timeSz = timeAS.size(), dateSz = dateAS.size()
-
-        let contentW = max(timeSz.width, dateSz.width)
-        let contentH = tSize * 1.05 + dSize * 1.7
-        let panel = CGRect(x: anchor.x - contentW / 2 - pad, y: anchor.y - contentH / 2 - pad,
-                           width: contentW + pad * 2, height: contentH + pad * 2)
-        drawGlassPanel(ctx, rect: panel, corner: corner, shadowBlur: pad)
 
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: 0, height: -tSize * 0.03), blur: tSize * 0.12,
                       color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.60))
-        let timeY = panel.maxY - pad - tSize * 1.05
-        timeAS.draw(at: NSPoint(x: panel.midX - timeSz.width / 2, y: timeY))
-        let dateY = timeY - dSize * 1.5
-        dateAS.draw(at: NSPoint(x: panel.midX - dateSz.width / 2, y: dateY))
+        let dateY = margin
+        dateAS.draw(at: NSPoint(x: rect.width - margin - dateSz.width, y: dateY))
+        let timeY = dateY + dSize * 1.5
+        timeAS.draw(at: NSPoint(x: rect.width - margin - timeSz.width, y: timeY))
         ctx.restoreGState()
     }
 
