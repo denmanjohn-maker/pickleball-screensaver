@@ -20,7 +20,12 @@ let outDir = positional.count > 0 ? positional[positional.startIndex] : "/tmp/pb
 let seconds = positional.count > 1 ? Double(positional[positional.index(positional.startIndex, offsetBy: 1)]) ?? 10 : 10
 let startClock = positional.count > 2 ? Double(positional[positional.index(positional.startIndex, offsetBy: 2)]) ?? 90 : 90
 
-try? FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
+let outURL = URL(fileURLWithPath: outDir, isDirectory: true)
+do {
+    try FileManager.default.createDirectory(at: outURL, withIntermediateDirectories: true)
+} catch {
+    fatalError("cannot create output directory \(outURL.path): \(error.localizedDescription)")
+}
 
 guard let view = PickleballScreensaverView(frame: NSRect(x: 0, y: 0, width: 1280, height: 720),
                                            isPreview: true) else {
@@ -52,7 +57,12 @@ for i in 0..<frames {
           let png = NSBitmapImageRep(cgImage: img).representation(using: .png, properties: [:]) else {
         fatalError("failed to encode frame \(i)")
     }
-    try! png.write(to: URL(fileURLWithPath: String(format: "%@/frame_%05d.png", outDir, written)))
+    let frameURL = outURL.appendingPathComponent(String(format: "frame_%05d.png", written))
+    do {
+        try png.write(to: frameURL)
+    } catch {
+        fatalError("cannot write \(frameURL.path): \(error.localizedDescription)")
+    }
     written += 1
 }
 print("wrote \(written) frames to \(outDir)")
