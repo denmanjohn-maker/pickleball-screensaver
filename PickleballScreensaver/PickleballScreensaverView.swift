@@ -1160,12 +1160,13 @@ class PickleballScreensaverView: ScreenSaverView {
 
     // Translucent rounded "glass" panel background, shared by the rail cards
     // and the floating court clock
-    private func drawGlassPanel(_ ctx: CGContext, rect: CGRect, corner: CGFloat, shadowBlur: CGFloat) {
+    private func drawGlassPanel(_ ctx: CGContext, rect: CGRect, corner: CGFloat, shadowBlur: CGFloat,
+                                fillColor: CGColor = CGColor(red: 0, green: 0, blue: 0, alpha: 0.75)) {
         let path = CGPath(roundedRect: rect, cornerWidth: corner, cornerHeight: corner, transform: nil)
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: 0, height: -shadowBlur * 0.3), blur: shadowBlur,
                       color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.22))
-        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.75))
+        ctx.setFillColor(fillColor)
         ctx.addPath(path); ctx.fillPath()
         ctx.restoreGState()
         ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.16))
@@ -1177,7 +1178,8 @@ class PickleballScreensaverView: ScreenSaverView {
     @discardableResult
     private func drawCard(_ ctx: CGContext, _ rail: Rail, top: CGFloat, height: CGFloat) -> CGRect {
         let rect = CGRect(x: rail.x, y: top - height, width: rail.width, height: height)
-        drawGlassPanel(ctx, rect: rect, corner: rail.corner, shadowBlur: rail.pad)
+        let cardFill = CGColor(red: 0.07, green: 0.13, blue: 0.15, alpha: 0.48)
+        drawGlassPanel(ctx, rect: rect, corner: rail.corner, shadowBlur: rail.pad, fillColor: cardFill)
         return rect.insetBy(dx: rail.pad, dy: rail.pad)
     }
 
