@@ -18,19 +18,46 @@ func writeThumbnail(width: Int, height: Int, to path: String) {
                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
     let W = CGFloat(width), H = CGFloat(height)
 
-    // Court-green background with a thin white boundary, echoing the court lines
-    ctx.setFillColor(CGColor(red: 0.30, green: 0.53, blue: 0.40, alpha: 1))
+    // Dark teal background matching the screensaver
+    ctx.setFillColor(CGColor(red: 0.05, green: 0.09, blue: 0.10, alpha: 1))
     ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
-    let inset = H * 0.06
-    ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.9))
-    ctx.setLineWidth(max(1, H * 0.025))
-    ctx.stroke(CGRect(x: inset, y: inset, width: W - 2 * inset, height: H - 2 * inset))
 
-    // Paddle aspect-fit, centered (tall sprite, so height-constrained)
-    let pad = H * 0.10
-    let ph = H - 2 * pad
+    // Subtle radial glow in the center
+    let glowColors = [CGColor(red: 0.12, green: 0.24, blue: 0.23, alpha: 0.45),
+                      CGColor(red: 0.05, green: 0.09, blue: 0.10, alpha: 0)] as CFArray
+    let locs: [CGFloat] = [0, 1]
+    if let grad = CGGradient(colorsSpace: space, colors: glowColors, locations: locs) {
+        let center = CGPoint(x: W * 0.45, y: H * 0.55)
+        let radius = max(W, H) * 0.65
+        ctx.drawRadialGradient(grad, startCenter: center, startRadius: 0,
+                               endCenter: center, endRadius: radius, options: [])
+    }
+
+    // Paddle — angled −25°, large, pivot at center-left
+    let ph = H * 0.92
     let pw = ph * CGFloat(paddle.width) / CGFloat(paddle.height)
-    ctx.draw(paddle, in: CGRect(x: (W - pw) / 2, y: (H - ph) / 2, width: pw, height: ph))
+    ctx.saveGState()
+    ctx.translateBy(x: W * 0.40, y: H * 0.50)
+    ctx.rotate(by: -25 * .pi / 180)
+    ctx.draw(paddle, in: CGRect(x: -pw / 2, y: -ph / 2, width: pw, height: ph))
+    ctx.restoreGState()
+
+    // Pickleball — yellow circle with a few holes suggesting the real thing
+    let ballR = H * 0.19
+    let ballX = W * 0.76
+    let ballY = H * 0.31
+    ctx.setFillColor(CGColor(red: 0.91, green: 0.87, blue: 0.18, alpha: 1))
+    ctx.fillEllipse(in: CGRect(x: ballX - ballR, y: ballY - ballR,
+                               width: ballR * 2, height: ballR * 2))
+    // Holes
+    ctx.setFillColor(CGColor(red: 0.55, green: 0.52, blue: 0.06, alpha: 0.85))
+    let holeR = ballR * 0.22
+    for (dx, dy): (CGFloat, CGFloat) in [(-ballR * 0.38,  ballR * 0.20),
+                                          ( ballR * 0.10, -ballR * 0.35),
+                                          ( ballR * 0.38,  ballR * 0.22)] {
+        ctx.fillEllipse(in: CGRect(x: ballX + dx - holeR, y: ballY + dy - holeR,
+                                   width: holeR * 2, height: holeR * 2))
+    }
 
     let rep = NSBitmapImageRep(cgImage: ctx.makeImage()!)
     rep.size = NSSize(width: width, height: height)
