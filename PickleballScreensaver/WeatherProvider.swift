@@ -3,8 +3,8 @@ import ScreenSaver
 
 // MARK: - Settings
 
-/// Persisted weather choices from the configure sheet, stored beside
-/// PhotoSettings in the saver's ScreenSaverDefaults.
+/// Persisted weather choices from the configure sheet, stored in the
+/// saver's ScreenSaverDefaults.
 struct WeatherSettings {
     var enabled = false
     var locationName = ""

@@ -1,7 +1,5 @@
 import ScreenSaver
 import AppKit
-import CoreImage
-import CoreImage.CIFilterBuiltins
 
 // MARK: - Types
 
@@ -13,6 +11,9 @@ private struct Vec3 {
 
 private struct PlayerState {
     var x: CGFloat = 0          // body position across court width
+    var z: CGFloat = 0          // body depth (baseline, or advancing toward the kitchen)
+    var targetZ: CGFloat = 0    // depth the body moves toward each frame
+    var willRush = false        // designated to rush the kitchen after their next clean hit
     var stance: CGFloat = 1     // contact-offset side for this swing: +1 = wx+ side, -1 = wx- side
     var swingPhase = false
     var swingT: CGFloat = 0     // normalized swing time [0, 1+recovery]
@@ -75,14 +76,16 @@ class PickleballScreensaverView: ScreenSaverView {
     private let gravity:    CGFloat = -2.6
     private let bounceDamp: CGFloat = 0.55
     private let netHeight:  CGFloat = 0.32   // sideline/post height (36 in); netTopY(_:) gives the sagging top
-    private let zSpeed:     CGFloat = 0.52   // depth speed of the ball (units / sec)
-    private let paddleSpeed: CGFloat = 1.30  // lateral tracking speed (units / sec)
+    private let zSpeed:     CGFloat = 0.70   // depth speed of the ball (units / sec)
+    private let paddleSpeed: CGFloat = 1.90  // lateral tracking speed (units / sec)
+    private let rushSpeed:  CGFloat = 0.25   // forward speed of a kitchen rush (units / sec)
 
     // Court depth landmarks (normalised over 44 ft court length)
     private let kitchenNearZ: CGFloat = 15.0 / 44.0   // ≈ 0.341
     private let kitchenFarZ:  CGFloat = 29.0 / 44.0   // ≈ 0.659
     private let leftPlayerZ:  CGFloat = 0.04
     private let rightPlayerZ: CGFloat = 0.96
+    private let kitchenStandoffZ: CGFloat = 0.02      // rushers stop this far behind their kitchen line
 
     // Camera — 10 ft behind the near-left court corner (on the center-corner diagonal,
     // extended), looking down 45° at the court center
@@ -96,6 +99,12 @@ class PickleballScreensaverView: ScreenSaverView {
     private let reach:     CGFloat = 0.18     // paddle contact offset from body (1.8 ft)
     private let hitWindow: CGFloat = 0.45     // max |ball.x - contact point| for a clean hit
 
+    // Shot selection — `var` (not `let`) so an offscreen harness can force behaviors
+    var crossCourtProb:  CGFloat = 0.65   // backhands rip cross-court this often
+    var passingShotProb: CGFloat = 0.07   // shots allowed to sail out of the opponent's reach
+    var netFaultProb:    CGFloat = 0.05   // deliberate netted shots
+    var rushProb:        CGFloat = 0.35   // rallies where one player rushes the kitchen to volley
+
     // Real-world equipment sizes (drawn intentionally oversized for readability)
     private let paddleLenFt: CGFloat = (16.0 / 12.0) * 2.0   // regulation ~16 in, drawn 2x
     private let ballRFt: CGFloat = 0.121 * 3.5               // regulation 1.45 in radius, drawn 3.5x
@@ -106,7 +115,7 @@ class PickleballScreensaverView: ScreenSaverView {
     // midpoint of that stroke with the face horizontal and the ball on the face
     // center; the finish is forward and up, then the paddle settles back to ready.
     // Angles are relative to the horizontal contact pose (0 = face at the net).
-    private let swingDuration:  CGFloat = 0.60   // seconds, windup through finish
+    private let swingDuration:  CGFloat = 0.50   // seconds, windup through finish
     private let backswingFrac:  CGFloat = 0.45   // fraction of the swing spent going back and down
     private var contactFrac: CGFloat { backswingFrac + (1 - backswingFrac) / 2 }
     private let recoveryFrac:   CGFloat = 0.50   // extra fraction to settle back to ready after the finish
@@ -170,15 +179,6 @@ class PickleballScreensaverView: ScreenSaverView {
     private var rightGames = 0
     private var gameBannerTimer: CGFloat = 0
 
-    // Photo dissolve overlay — the source image is perspective-warped once per
-    // appearance to exactly fill a court quadrant's trapezoid; drawPhoto then
-    // just blits the cached result every frame.
-    private var photoController: PhotoOverlayController?
-    private var photoWarpedImage: CGImage?
-    private var photoWarpedRect: CGRect = .zero
-    private var photoQuadCorners: (nearLeft: CGPoint, nearRight: CGPoint, farLeft: CGPoint, farRight: CGPoint) = (.zero, .zero, .zero, .zero)
-    private static let ciContext = CIContext()
-
     // MARK: - Init
 
     override init?(frame: NSRect, isPreview: Bool) {
@@ -198,12 +198,8 @@ class PickleballScreensaverView: ScreenSaverView {
         let drillSettings = DrillSettings.load()
         drillEnabled = drillSettings.drillEnabled
         drillLevel = drillSettings.drillLevel
-        // File loading and networking stay out of the tiny System Settings preview
+        // Networking stays out of the tiny System Settings preview
         if !isPreview {
-            let photoSettings = PhotoSettings.load()
-            if photoSettings.source != .off {
-                photoController = PhotoOverlayController(settings: photoSettings)
-            }
             let weatherSettings = WeatherSettings.load()
             if weatherSettings.enabled && weatherSettings.hasLocation {
                 weatherProvider = WeatherProvider(settings: weatherSettings)
@@ -298,6 +294,12 @@ class PickleballScreensaverView: ScreenSaverView {
         bVel = Vec3(x: CGFloat.random(in: -0.1...0.1), y: vy0, z: dir * zSpeed)
         leftPlayer  = PlayerState()
         rightPlayer = PlayerState()
+        leftPlayer.z  = leftPlayerZ;  leftPlayer.targetZ  = leftPlayerZ
+        rightPlayer.z = rightPlayerZ; rightPlayer.targetZ = rightPlayerZ
+        // Some rallies feature one player following a shot in to volley
+        if CGFloat.random(in: 0...1) < rushProb {
+            if Bool.random() { leftPlayer.willRush = true } else { rightPlayer.willRush = true }
+        }
         // Server plays a follow-through from the contact pose
         if leftServes {
             leftPlayer.x = ball.x - reach
@@ -340,8 +342,12 @@ class PickleballScreensaverView: ScreenSaverView {
         let now = Date().timeIntervalSinceReferenceDate
         let dt: CGFloat = lastFrameTime == 0 ? 1/60.0 : min(CGFloat(now - lastFrameTime), 0.05)
         lastFrameTime = now
+        step(now: now, dt: dt)
+    }
 
-        updatePhotoOverlay(dt: dt)   // before the faultTimer early return
+    // One frame of simulation, split from animateOneFrame so the offscreen
+    // preview harness (scripts/preview) can drive a synthetic clock
+    func step(now: TimeInterval, dt: CGFloat) {
         updateGhosts(dt: dt)
 
         // Turntable spin: kick off at every wall-clock minute boundary
@@ -368,7 +374,9 @@ class PickleballScreensaverView: ScreenSaverView {
 
         if faultTimer > 0 {
             faultTimer -= dt
-            // Let an in-progress swing finish (reads as a natural whiff)
+            // Let the missed ball sail past (stopping well before the camera
+            // plane) while an in-progress swing finishes as a natural whiff
+            if ball.z > -0.15 && ball.z < 1.15 { integrateBall(dt: dt) }
             updateSwing(&leftPlayer,  side:  1, dt: dt)
             updateSwing(&rightPlayer, side: -1, dt: dt)
             if faultTimer <= 0 { scoreRally() }
@@ -377,26 +385,11 @@ class PickleballScreensaverView: ScreenSaverView {
         }
 
         let prevZ = ball.z
-
-        // Integrate
-        ball.y += bVel.y * dt
-        bVel.y += gravity * dt
-        ball.x += bVel.x * dt
-        ball.z += bVel.z * dt
-
-        // Floor bounce
-        if ball.y < 0 {
-            ball.y = 0
-            bVel.y = abs(bVel.y) * bounceDamp
-        }
-
-        // Sideline bounce
-        if ball.x < -1 { ball.x = -1; bVel.x =  abs(bVel.x) }
-        if ball.x >  1 { ball.x =  1; bVel.x = -abs(bVel.x) }
+        integrateBall(dt: dt)
 
         // Invisible players run to intercept and wind up their swings
-        updatePlayer(&leftPlayer,  playerZ: leftPlayerZ,  side:  1, approaching: bVel.z < 0, dt: dt)
-        updatePlayer(&rightPlayer, playerZ: rightPlayerZ, side: -1, approaching: bVel.z > 0, dt: dt)
+        updatePlayer(&leftPlayer,  side:  1, approaching: bVel.z < 0, dt: dt)
+        updatePlayer(&rightPlayer, side: -1, approaching: bVel.z > 0, dt: dt)
 
         updateSwing(&leftPlayer,  side:  1, dt: dt)
         updateSwing(&rightPlayer, side: -1, dt: dt)
@@ -412,9 +405,9 @@ class PickleballScreensaverView: ScreenSaverView {
         }
 
         // Hit detection — left player (ball arriving at screen left)
-        if bVel.z < 0 && ball.z <= leftPlayerZ {
+        if bVel.z < 0 && ball.z <= leftPlayer.z {
             if abs(ball.x - contactX(leftPlayer, side: 1)) < hitWindow {
-                returnBall(fromZ: leftPlayerZ, goingFar: true, player: &leftPlayer)
+                returnBall(player: &leftPlayer, opponent: rightPlayer, side: 1, goingFar: true)
             } else {
                 faultTimer = 1.0
                 rallyLostByLeft = true         // failed return
@@ -422,9 +415,9 @@ class PickleballScreensaverView: ScreenSaverView {
         }
 
         // Hit detection — right player (ball arriving at screen right)
-        if bVel.z > 0 && ball.z >= rightPlayerZ {
+        if bVel.z > 0 && ball.z >= rightPlayer.z {
             if abs(ball.x - contactX(rightPlayer, side: -1)) < hitWindow {
-                returnBall(fromZ: rightPlayerZ, goingFar: false, player: &rightPlayer)
+                returnBall(player: &rightPlayer, opponent: leftPlayer, side: -1, goingFar: false)
             } else {
                 faultTimer = 1.0
                 rallyLostByLeft = false        // failed return
@@ -440,6 +433,24 @@ class PickleballScreensaverView: ScreenSaverView {
         if trailPoints.count > 18 { trailPoints.removeFirst() }
 
         setNeedsDisplay(bounds)
+    }
+
+    // Euler-integrate the ball with floor and sideline bounces
+    private func integrateBall(dt: CGFloat) {
+        ball.y += bVel.y * dt
+        bVel.y += gravity * dt
+        ball.x += bVel.x * dt
+        ball.z += bVel.z * dt
+
+        // Floor bounce
+        if ball.y < 0 {
+            ball.y = 0
+            bVel.y = abs(bVel.y) * bounceDamp
+        }
+
+        // Sideline bounce
+        if ball.x < -1 { ball.x = -1; bVel.x =  abs(bVel.x) }
+        if ball.x >  1 { ball.x =  1; bVel.x = -abs(bVel.x) }
     }
 
     // MARK: - Ambient wallpaper ghosts
@@ -548,22 +559,60 @@ class PickleballScreensaverView: ScreenSaverView {
         return y
     }
 
-    private func returnBall(fromZ: CGFloat, goingFar: Bool, player: inout PlayerState) {
-        ball.z = fromZ
+    private func returnBall(player: inout PlayerState, opponent: PlayerState,
+                            side: CGFloat, goingFar: Bool) {
+        ball.z = player.z
         ball.y = max(ball.y, 0.02)
         let dir: CGFloat = goingFar ? 1 : -1
-        // Mostly clean returns; occasionally one is netted, which ends the rally
-        // and drives the scoring (the clearance check attributes the fault)
-        let margin = CGFloat.random(in: 0...1) < 0.08
+
+        // Land the ball where the opponent will take it: their kitchen
+        // standoff if they are rushing, else their baseline
+        let tTarget = max(0.05, abs(opponent.targetZ - player.z) / zSpeed)
+
+        // Shot selection: forehands drive straight; backhands usually rip
+        // cross-court (singles patterns, like tennis), sometimes down the
+        // line so rallies don't lock into a permanent cross-court loop
+        let backhand = player.stance != side
+        var targetX: CGFloat
+        if backhand && CGFloat.random(in: 0...1) < crossCourtProb {
+            let away: CGFloat = ball.x >= 0 ? -1 : 1
+            targetX = away * CGFloat.random(in: 0.4...0.8)
+        } else {
+            targetX = ball.x + CGFloat.random(in: -0.15...0.15)
+        }
+        // Keep the shot reachable unless it's a deliberate passing shot —
+        // those sail wide of the opponent and end the rally naturally
+        if CGFloat.random(in: 0...1) >= passingShotProb {
+            let cover = paddleSpeed * tTarget * 0.85 + hitWindow * 0.8
+            targetX = max(opponent.x - cover, min(opponent.x + cover, targetX))
+        }
+        targetX = max(-0.85, min(0.85, targetX))
+
+        // Mostly clean returns; occasionally one is netted, which ends the
+        // rally and drives the scoring (the clearance check attributes the
+        // fault). Volleys taken up at the kitchen are hit flatter so
+        // put-aways stay playable.
+        let atBaseline = abs(player.z - (goingFar ? leftPlayerZ : rightPlayerZ)) < 0.01
+        let netted = CGFloat.random(in: 0...1) < netFaultProb
+        let margin = netted
             ? netHeight * CGFloat.random(in: -0.15 ... -0.03)
-            : netHeight * CGFloat.random(in: 0.6...1.0)
-        let vy0 = launchVy(fromZ: fromZ, fromY: ball.y, zSpd: zSpeed, margin: margin)
-        bVel.y = vy0
+            : netHeight * (atBaseline ? CGFloat.random(in: 0.6...1.0)
+                                      : CGFloat.random(in: 0.2...0.6))
+        bVel.y = launchVy(fromZ: player.z, fromY: ball.y, zSpd: zSpeed, margin: margin)
         bVel.z = dir * zSpeed
-        bVel.x = CGFloat.random(in: -0.18...0.18)
+        bVel.x = (targetX - ball.x) / tTarget
+
+        // Follow a clean shot in: the designated rusher advances to the
+        // kitchen line and volleys from there for the rest of the rally
+        if player.willRush && !netted {
+            player.targetZ = goingFar ? kitchenNearZ - kitchenStandoffZ
+                                      : kitchenFarZ + kitchenStandoffZ
+            player.willRush = false
+        }
+
         // The windup normally began contactFrac of a swing ago; if it didn't
         // (edge case), snap to the contact pose so the follow-through plays from impact.
-        player.contactY = max(0.03, ball.y)   // face center meets the ball exactly here
+        player.contactY = min(0.70, max(0.03, ball.y))   // face center meets the ball exactly here
         if !player.swingPhase || player.swingT < contactFrac {
             player.swingPhase = true
             player.swingT = contactFrac
@@ -573,23 +622,26 @@ class PickleballScreensaverView: ScreenSaverView {
     // Body movement + swing anticipation for one invisible player.
     // side: +1 = left player (faces +z), -1 = right player (faces -z).
     // For right-handed players the forehand side in world-x equals `side`.
-    private func updatePlayer(_ p: inout PlayerState, playerZ: CGFloat, side: CGFloat,
+    private func updatePlayer(_ p: inout PlayerState, side: CGFloat,
                               approaching: Bool, dt: CGFloat) {
         // Run so the forehand contact point meets the predicted ball; drift home otherwise
-        let target = approaching ? predictX(toZ: playerZ) - side * reach : 0
+        let target = approaching ? predictX(toZ: p.z) - side * reach : 0
         let spd = paddleSpeed * dt * (approaching ? 1.0 : 0.6)
         p.x = moveVal(p.x, toward: target, speed: spd, lo: -1, hi: 1)
+
+        // A kitchen rush keeps advancing whether or not the ball is coming
+        p.z = moveVal(p.z, toward: p.targetZ, speed: rushSpeed * dt, lo: 0, hi: 1)
 
         guard approaching else { p.armed = true; return }
 
         // Start the backswing so contact lands at the midpoint of the forward sweep
-        let tta = (playerZ - ball.z) / bVel.z   // time to arrival, seconds
+        let tta = (p.z - ball.z) / bVel.z   // time to arrival, seconds
         guard tta > 0 else { return }
         if p.armed && tta <= contactFrac * swingDuration {
             // Forehand or backhand: which side of the body will the ball arrive on?
-            p.stance = (predictX(toZ: playerZ) - p.x >= 0) ? 1 : -1
+            p.stance = (predictX(toZ: p.z) - p.x >= 0) ? 1 : -1
             // Aim the swing so the face center arrives at the ball's height
-            p.contactY = min(0.55, max(0.03, predictY(toZ: playerZ)))
+            p.contactY = min(0.70, max(0.03, predictY(toZ: p.z)))
             p.swingPhase = true
             p.swingT = max(0, contactFrac - tta / swingDuration)  // frame-quantization catch-up
             p.armed = false
@@ -665,9 +717,6 @@ class PickleballScreensaverView: ScreenSaverView {
         drawBackground(ctx: ctx, rect: rect)
         drawGhosts(ctx: ctx)
         drawCourt(ctx: ctx)
-        // The photo's perspective warp is cached against the unrotated court
-        // quadrant, so it would detach from the court mid-spin — hide it there
-        if spinT < 0 { drawPhoto(ctx: ctx) }   // under ball, net, paddles, and overlays
         drawBallShadow(ctx: ctx)
         drawTrail(ctx: ctx)
 
@@ -676,10 +725,10 @@ class PickleballScreensaverView: ScreenSaverView {
         let sprites: [(wz: CGFloat, depth: CGFloat, draw: () -> Void)] = [
             (ball.z, unitProj(ball.x, ball.z, ball.y).depth,
              { self.drawBall(ctx: ctx) }),
-            (leftPlayerZ, unitProj(paddleWx(leftPlayer, side: 1), leftPlayerZ, 0.1).depth,
-             { self.drawPaddle(ctx: ctx, state: self.leftPlayer, wz: self.leftPlayerZ, side: 1) }),
-            (rightPlayerZ, unitProj(paddleWx(rightPlayer, side: -1), rightPlayerZ, 0.1).depth,
-             { self.drawPaddle(ctx: ctx, state: self.rightPlayer, wz: self.rightPlayerZ, side: -1) }),
+            (leftPlayer.z, unitProj(paddleWx(leftPlayer, side: 1), leftPlayer.z, 0.1).depth,
+             { self.drawPaddle(ctx: ctx, state: self.leftPlayer, wz: self.leftPlayer.z, side: 1) }),
+            (rightPlayer.z, unitProj(paddleWx(rightPlayer, side: -1), rightPlayer.z, 0.1).depth,
+             { self.drawPaddle(ctx: ctx, state: self.rightPlayer, wz: self.rightPlayer.z, side: -1) }),
         ]
         for s in sprites.filter({ $0.wz > 0.5 }).sorted(by: { $0.depth > $1.depth }) { s.draw() }
         drawNet(ctx: ctx)
@@ -1070,28 +1119,42 @@ class PickleballScreensaverView: ScreenSaverView {
         let face = proj(wx, wz + state.faceDZ, state.faceY)
         let faceCenterPx = (Self.paddleFaceCenterFrac - Self.paddlePivotFrac) * hPx
         // Rest pose is HORIZONTAL: face points at the net, handle toward the body.
-        // The on-screen rotation comes from projecting a probe along the paddle
-        // axis (toward-net tilted by the swing angle). The corner camera projects
-        // the far player's toward-net axis downward into the court, which reads
-        // as the paddle hanging at the floor, so the far pose is evaluated
-        // mirrored through the net onto the near court and the angle reflected —
-        // both players then read as screen-space mirror images.
+        // The on-screen rotation comes from a screen-space basis at the face
+        // center's true court position: N = this player's projected toward-net
+        // axis, U = projected world-up; the paddle axis is N tilted toward U by
+        // the swing angle. The corner camera projects the far player's
+        // toward-net axis down-screen, and a flat sprite can't foreshorten, so
+        // that pose would read as the paddle lying on the court — when N points
+        // below the local screen horizontal it is reflected about it. The
+        // reflection leaves the near player untouched, renders the far player
+        // as its upright mirror image, and is the identity at the crossover, so
+        // the pose stays continuous while the court yaw-spins.
         let kFt: CGFloat = 0.5   // probe length in feet
-        let zBase = side > 0 ? wz + state.faceDZ : 1 - (wz + state.faceDZ)
-        let base = proj(wx, zBase, state.faceY)
-        let tip  = proj(wx, zBase + cos(state.swingAngle) * kFt / ftPerZ,
-                        state.faceY + sin(state.swingAngle) * kFt / ftPerY)
-        let phiNear = atan2(tip.y - base.y, tip.x - base.x) - .pi / 2
-        let phi = side > 0 ? phiNear : -phiNear
+        let wzF = wz + state.faceDZ
+        let upTip  = proj(wx, wzF, state.faceY + kFt / ftPerY)
+        let netTip = proj(wx, wzF + side * kFt / ftPerZ, state.faceY)
+        let uLen = max(1e-9, hypot(upTip.x - face.x, upTip.y - face.y))
+        let ux = (upTip.x - face.x) / uLen, uy = (upTip.y - face.y) / uLen
+        var nx = netTip.x - face.x, ny = netTip.y - face.y
+        let upComponent = nx * ux + ny * uy
+        if upComponent < 0 {
+            nx -= 2 * upComponent * ux
+            ny -= 2 * upComponent * uy
+        }
+        let ax = cos(state.swingAngle) * nx + sin(state.swingAngle) * (upTip.x - face.x)
+        let ay = cos(state.swingAngle) * ny + sin(state.swingAngle) * (upTip.y - face.y)
+        let phi = atan2(ay, ax) - .pi / 2
         let pivot = CGPoint(x: face.x + faceCenterPx * sin(phi),
                             y: face.y - faceCenterPx * cos(phi))
 
         ctx.saveGState()
         ctx.translateBy(x: pivot.x, y: pivot.y)
         ctx.rotate(by: phi)
-        // The far paddle is seen from its other side; mirror so the players
-        // read as mirror images of each other
-        if side < 0 { ctx.scaleBy(x: -1, y: 1) }
+        // The far paddle is seen from its other side, and a backhand shows the
+        // paddle's other face; either flips the sprite artwork about its long axis
+        if (side < 0) != (state.swingPhase && state.stance != side) {
+            ctx.scaleBy(x: -1, y: 1)
+        }
 
         // Sprite is authored upright: handle hangs DOWN from the grip pivot,
         // face extends UP; the image rect places the pivot at the grip junction
@@ -1609,105 +1672,6 @@ class PickleballScreensaverView: ScreenSaverView {
         p.move(to: a); p.addLine(to: b); p.addLine(to: c); p.addLine(to: d); p.closeSubpath()
         ctx.addPath(p)
         ctx.strokePath()
-    }
-
-    // MARK: - Photo overlay
-
-    private func updatePhotoOverlay(dt: CGFloat) {
-        guard let pc = photoController else { return }
-        pc.maxPixelSize = max(bounds.width, bounds.height) * (window?.backingScaleFactor ?? 2)
-        if pc.update(dt: dt), let img = pc.image {
-            warpPhotoIntoQuadrant(img)
-        }
-    }
-
-    // Perspective-warps `image` to exactly fill a randomly chosen blue court
-    // quadrant's trapezoid (near edge wider/lower on screen, far edge
-    // narrower/higher — matching the existing blue-box fillQuad winding), then
-    // rasterizes the result once via a shared CIContext. drawPhoto just blits
-    // the cached CGImage every frame, so this only runs when a new photo
-    // appears, not per frame.
-    private func warpPhotoIntoQuadrant(_ image: CGImage) {
-        let quads: [(x0: CGFloat, x1: CGFloat, z0: CGFloat, z1: CGFloat)] = [
-            (-1, 0, 0, kitchenNearZ), (0, 1, 0, kitchenNearZ),
-            (-1, 0, kitchenFarZ, 1), (0, 1, kitchenFarZ, 1),
-        ].shuffled()
-        let overlays = CGRect(x: 0, y: 0,
-                              width: bounds.width * 0.30, height: bounds.height)
-        // Prefer the first shuffled quadrant that doesn't touch the left rail
-        // column; fall back to the first if all four do (rare).
-        let chosen = quads.first { !quadBoundingRect($0).intersects(overlays) } ?? quads[0]
-        let corners = quadCorners(chosen, insetFrac: 0.08)
-        photoQuadCorners = corners
-
-        let ciImage = CIImage(cgImage: image)
-        let filter = CIFilter.perspectiveTransform()
-        filter.inputImage = ciImage
-        filter.topLeft = corners.farLeft
-        filter.topRight = corners.farRight
-        filter.bottomLeft = corners.nearLeft
-        filter.bottomRight = corners.nearRight
-
-        guard let output = filter.outputImage else { photoWarpedImage = nil; return }
-        let extent = output.extent
-        guard !extent.isInfinite, !extent.isEmpty,
-              let warped = Self.ciContext.createCGImage(output, from: extent) else {
-            photoWarpedImage = nil
-            return
-        }
-        photoWarpedImage = warped
-        photoWarpedRect = extent
-    }
-
-    // Bounding rect of a quadrant's 4 projected corners — used only for the
-    // quick overlay-avoidance test, not for drawing.
-    private func quadBoundingRect(_ q: (x0: CGFloat, x1: CGFloat, z0: CGFloat, z1: CGFloat)) -> CGRect {
-        let pts = [proj(q.x0, q.z0, 0), proj(q.x1, q.z0, 0), proj(q.x1, q.z1, 0), proj(q.x0, q.z1, 0)]
-        let xs = pts.map(\.x), ys = pts.map(\.y)
-        return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
-    }
-
-    // The 4 projected corners of a quadrant, pulled in toward the centroid by
-    // `insetFrac` so the photo doesn't sit flush against the court lines.
-    // Screen "left"/"right" are resolved from actual projected x (not world
-    // x0/x1) since this oblique corner camera can flip that ordering on the
-    // far side of the net.
-    private func quadCorners(_ q: (x0: CGFloat, x1: CGFloat, z0: CGFloat, z1: CGFloat), insetFrac: CGFloat)
-        -> (nearLeft: CGPoint, nearRight: CGPoint, farLeft: CGPoint, farRight: CGPoint) {
-        let nearA = proj(q.x0, q.z0, 0), nearB = proj(q.x1, q.z0, 0)
-        let farA  = proj(q.x0, q.z1, 0), farB  = proj(q.x1, q.z1, 0)
-        let nearLeft  = nearA.x <= nearB.x ? nearA : nearB
-        let nearRight = nearA.x <= nearB.x ? nearB : nearA
-        let farLeft   = farA.x <= farB.x ? farA : farB
-        let farRight  = farA.x <= farB.x ? farB : farA
-        let cx = (nearLeft.x + nearRight.x + farLeft.x + farRight.x) / 4
-        let cy = (nearLeft.y + nearRight.y + farLeft.y + farRight.y) / 4
-        func pull(_ p: CGPoint) -> CGPoint {
-            CGPoint(x: cx + (p.x - cx) * (1 - insetFrac), y: cy + (p.y - cy) * (1 - insetFrac))
-        }
-        return (pull(nearLeft), pull(nearRight), pull(farLeft), pull(farRight))
-    }
-
-    private func drawPhoto(ctx: CGContext) {
-        guard let pc = photoController, let img = photoWarpedImage, pc.image != nil else { return }
-        let alpha = pc.alpha
-        guard alpha > 0 else { return }
-        ctx.saveGState()
-        ctx.setAlpha(alpha)
-        ctx.draw(img, in: photoWarpedRect)
-        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.6))
-        ctx.setLineWidth(2)
-        let c = photoQuadCorners
-        strokeQuad(ctx, c.nearLeft, c.nearRight, c.farRight, c.farLeft)
-        ctx.restoreGState()
-    }
-
-    /// Test hook for the offscreen harness: dissolve this image in on the next
-    /// frame without touching Photos or the filesystem.
-    func _debugShowPhoto(_ image: CGImage) {
-        let pc = photoController ?? PhotoOverlayController(settings: PhotoSettings())
-        photoController = pc
-        pc._debugInject(image)
     }
 
     // MARK: - ScreenSaverView
