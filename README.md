@@ -29,3 +29,7 @@ To install it for the current user:
 ```sh
 make install
 ```
+
+To build a zip you can share with other Macs, run `make dist` — see
+[DISTRIBUTING.md](DISTRIBUTING.md) for signing/notarization details and what
+recipients need to do.
