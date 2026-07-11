@@ -1124,21 +1124,55 @@ class PickleballScreensaverView: ScreenSaverView {
         // center's true court position: N = this player's projected toward-net
         // axis, U = projected world-up; the paddle axis is N tilted toward U by
         // the swing angle (0 = face at the net, readyAngle = held upright).
-        // Both sides use the true projected basis: it keeps the HEAD as the
-        // low, ball-facing end through every strike (an earlier reflect-N-
-        // upright branch was orientation-reversing and made the far handle
-        // appear to strike the ball), and with no branch the pose is
-        // inherently continuous while the court yaw-spins.
+        // The corner camera projects the far player's N down-screen, which
+        // would put the head under the ball at contact (a slice/dig pose), so
+        // N is lifted to the local screen horizontal by removing its downward
+        // component: the head then always RISES into the ball — hanging low in
+        // the windup, blade just above horizontal at the strike, high finish.
+        // Subtracting the component once is a projection; the earlier 2x
+        // (reflect-N-upright) was orientation-reversing and made the far
+        // handle appear to strike, and 0x (raw basis) made the head scoop
+        // under the ball. min(0, ·) is the identity for the near player and
+        // at the crossover, so the pose stays continuous while yaw-spinning.
         let kFt: CGFloat = 0.5   // probe length in feet
         let wzF = wz + state.faceDZ
         let upTip  = proj(wx, wzF, state.faceY + kFt / ftPerY)
         let netTip = proj(wx, wzF + side * kFt / ftPerZ, state.faceY)
-        let nx = netTip.x - face.x, ny = netTip.y - face.y
+        let uLen = max(1e-9, hypot(upTip.x - face.x, upTip.y - face.y))
+        let ux = (upTip.x - face.x) / uLen, uy = (upTip.y - face.y) / uLen
+        var nx = netTip.x - face.x, ny = netTip.y - face.y
+        let nLen = hypot(nx, ny)
+        let downAmt = min(0, nx * ux + ny * uy)
+        nx -= downAmt * ux
+        ny -= downAmt * uy
         let ax = cos(state.swingAngle) * nx + sin(state.swingAngle) * (upTip.x - face.x)
         let ay = cos(state.swingAngle) * ny + sin(state.swingAngle) * (upTip.y - face.y)
         let phi = atan2(ay, ax) - .pi / 2
-        let pivot = CGPoint(x: face.x + faceCenterPx * sin(phi),
-                            y: face.y - faceCenterPx * cos(phi))
+        // Face-pinned pivot: the face center rides the stroke path and the grip
+        // hangs off it. Reads correctly up close, where the path's toward-net
+        // sweep carries the whole paddle up-screen through contact.
+        let facePivot = CGPoint(x: face.x + faceCenterPx * sin(phi),
+                                y: face.y - faceCenterPx * cos(phi))
+        // Grip-pinned pivot: the hand is anchored near the strike point (riding
+        // the height sweep plus a fraction of the depth lunge) and the HEAD
+        // whips around it — hanging low in the windup, through the ball, up to
+        // the finish. Needed on the far side, where the toward-net sweep runs
+        // down-screen: face-pinning there leaves the head static and the handle
+        // doing the visible swinging.
+        let nClLen = max(1e-9, hypot(nx, ny))
+        let anchor = proj(wx, wz, state.faceY)
+        let gripFollow: CGFloat = 0.35   // how much of the depth lunge the hand follows
+        let gripPivot = CGPoint(
+            x: anchor.x + gripFollow * (face.x - anchor.x) - faceCenterPx * nx / nClLen,
+            y: anchor.y + gripFollow * (face.y - anchor.y) - faceCenterPx * ny / nClLen)
+        // Blend by how far the raw N dips below the local horizontal: 0 for the
+        // near player (bit-identical face-pinning), ~0.9 for the far player.
+        // Both pivots coincide exactly at the contact pose (faceDZ = 0, axis =
+        // clamped N), so the ball always lands on the face center, and the
+        // blend stays continuous through the turntable spin.
+        let w = nLen > 1e-9 ? min(1, -downAmt / nLen) : 0
+        let pivot = CGPoint(x: facePivot.x + w * (gripPivot.x - facePivot.x),
+                            y: facePivot.y + w * (gripPivot.y - facePivot.y))
 
         ctx.saveGState()
         ctx.translateBy(x: pivot.x, y: pivot.y)
