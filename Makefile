@@ -22,7 +22,19 @@ DIST_ZIP   = PickleballScreensaver-$(VERSION).zip
 # Override for notarized releases, e.g. make dist SIGN_ID="Developer ID Application: Your Name (TEAMID)"
 SIGN_ID   ?= -
 
-.PHONY: all clean install uninstall dist
+PKG        = PickleballScreensaver-$(VERSION).pkg
+DMG        = PickleballScreensaver-$(VERSION).dmg
+PKG_ROOT   = pkgroot
+DMG_ROOT   = dmgroot
+PKG_ID     = com.pickleball.screensaver.pkg
+# Unescaped (used only inside double-quoted make/shell strings below).
+PKG_INSTALL_DIR = /Library/Screen Savers
+# Signing the pkg requires a *Developer ID Installer* certificate (distinct
+# from Developer ID Application). Leave unset to build an unsigned pkg.
+# e.g. make pkg INSTALLER_SIGN_ID="Developer ID Installer: Your Name (TEAMID)"
+INSTALLER_SIGN_ID ?=
+
+.PHONY: all clean install uninstall dist pkg dmg
 
 all: $(BUNDLE)
 
@@ -71,5 +83,39 @@ endif
 	ditto -c -k --keepParent "$(BUNDLE)" "$(DIST_ZIP)"
 	@echo "Created $(DIST_ZIP)"
 
+# Build a signed .saver and wrap it in a system installer package that
+# places it in /Library/Screen Savers (all users) via Installer.app.
+pkg: $(BUNDLE)
+ifeq ($(SIGN_ID),-)
+	codesign --force --sign - "$(BUNDLE)"
+else
+	codesign --force --options runtime --timestamp --sign "$(SIGN_ID)" "$(BUNDLE)"
+endif
+	codesign --verify --verbose=2 "$(BUNDLE)"
+	rm -rf "$(PKG_ROOT)"
+	mkdir -p "$(PKG_ROOT)$(PKG_INSTALL_DIR)"
+	cp -r "$(BUNDLE)" "$(PKG_ROOT)$(PKG_INSTALL_DIR)/"
+ifeq ($(INSTALLER_SIGN_ID),)
+	pkgbuild --root "$(PKG_ROOT)" --identifier $(PKG_ID) --version $(VERSION) \
+		--install-location / "$(PKG)"
+else
+	pkgbuild --root "$(PKG_ROOT)" --identifier $(PKG_ID) --version $(VERSION) \
+		--install-location / --sign "$(INSTALLER_SIGN_ID)" "$(PKG)"
+endif
+	rm -rf "$(PKG_ROOT)"
+	@echo "Created $(PKG)"
+
+# Wrap the installer package in a disk image for distribution.
+dmg: pkg
+	rm -rf "$(DMG_ROOT)"
+	mkdir -p "$(DMG_ROOT)"
+	cp "$(PKG)" "$(DMG_ROOT)/"
+	rm -f "$(DMG)"
+	hdiutil create -volname "PickleballScreensaver" -srcfolder "$(DMG_ROOT)" \
+		-ov -format UDZO "$(DMG)"
+	rm -rf "$(DMG_ROOT)"
+	@echo "Created $(DMG)"
+
 clean:
-	rm -rf $(BUNDLE) $(BUILD_DIR) PickleballScreensaver-*.zip
+	rm -rf $(BUNDLE) $(BUILD_DIR) $(PKG_ROOT) $(DMG_ROOT) \
+		PickleballScreensaver-*.zip PickleballScreensaver-*.pkg PickleballScreensaver-*.dmg

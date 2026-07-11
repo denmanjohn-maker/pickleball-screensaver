@@ -7,4 +7,8 @@ PickleballScreensaver.saver/
 # Xcode user state
 **/xcuserdata/
 build/
+pkgroot/
+dmgroot/
 PickleballScreensaver-*.zip
+PickleballScreensaver-*.pkg
+PickleballScreensaver-*.dmg
