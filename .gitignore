@@ -6,3 +6,5 @@ PickleballScreensaver.saver/
 
 # Xcode user state
 **/xcuserdata/
+build/
+PickleballScreensaver-*.zip
