@@ -13,11 +13,50 @@ release.
 
 Share the zip however you like (GitHub Releases is the usual choice).
 
-## What recipients do
+## What recipients do (zip)
 
 1. Unzip and double-click `PickleballScreensaver.saver`. macOS asks whether to
    install for the current user or all users.
 2. Open **System Settings → Screen Saver** and select it.
+
+## Build a pkg-in-dmg instead
+
+If you'd rather ship a standard macOS installer experience (double-click,
+Installer.app walks them through it, no manual drag-and-drop) instead of a
+raw `.saver` file:
+
+```sh
+make dmg
+```
+
+This builds the signed `.saver`, wraps it in an installer package
+(`PickleballScreensaver-<version>.pkg`) that places it in
+`/Library/Screen Savers` for all users on the Mac, then wraps that package in
+`PickleballScreensaver-<version>.dmg`. `make pkg` alone stops after the pkg if
+you don't need the disk image.
+
+### What recipients do (pkg/dmg)
+
+1. Double-click the `.dmg` to mount it, then double-click the `.pkg` inside.
+2. Follow the Installer.app prompts (admin password required, since it
+   installs to `/Library/Screen Savers` for every user on the machine).
+3. Open **System Settings → Screen Saver** and select it.
+
+### Signing the pkg itself
+
+`SIGN_ID` (see below) signs the `.saver` bundle, but the outer `.pkg`
+installer needs its own signature from a **Developer ID Installer**
+certificate — a different certificate type than Developer ID Application,
+requested the same way from the [Certificates
+page](https://developer.apple.com/account/resources/certificates/list) once
+you're enrolled in the Developer Program. Without it, `make pkg`/`make dmg`
+produce an *unsigned* pkg — installable, but Gatekeeper will warn (see
+below), and it can't be notarized as a pkg.
+
+```sh
+make dmg SIGN_ID="Developer ID Application: Your Name (TEAMID)" \
+         INSTALLER_SIGN_ID="Developer ID Installer: Your Name (TEAMID)"
+```
 
 ## Gatekeeper: the ad-hoc-signed zip will be blocked at first
 
