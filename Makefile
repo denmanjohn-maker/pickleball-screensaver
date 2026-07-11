@@ -27,7 +27,8 @@ DMG        = PickleballScreensaver-$(VERSION).dmg
 PKG_ROOT   = pkgroot
 DMG_ROOT   = dmgroot
 PKG_ID     = com.pickleball.screensaver.pkg
-PKG_INSTALL_DIR = /Library/Screen\ Savers
+# Unescaped (used only inside double-quoted make/shell strings below).
+PKG_INSTALL_DIR = /Library/Screen Savers
 # Signing the pkg requires a *Developer ID Installer* certificate (distinct
 # from Developer ID Application). Leave unset to build an unsigned pkg.
 # e.g. make pkg INSTALLER_SIGN_ID="Developer ID Installer: Your Name (TEAMID)"
@@ -90,9 +91,10 @@ ifeq ($(SIGN_ID),-)
 else
 	codesign --force --options runtime --timestamp --sign "$(SIGN_ID)" "$(BUNDLE)"
 endif
+	codesign --verify --verbose=2 "$(BUNDLE)"
 	rm -rf "$(PKG_ROOT)"
-	mkdir -p "$(PKG_ROOT)/Library/Screen Savers"
-	cp -r "$(BUNDLE)" "$(PKG_ROOT)/Library/Screen Savers/"
+	mkdir -p "$(PKG_ROOT)$(PKG_INSTALL_DIR)"
+	cp -r "$(BUNDLE)" "$(PKG_ROOT)$(PKG_INSTALL_DIR)/"
 ifeq ($(INSTALLER_SIGN_ID),)
 	pkgbuild --root "$(PKG_ROOT)" --identifier $(PKG_ID) --version $(VERSION) \
 		--install-location / "$(PKG)"
