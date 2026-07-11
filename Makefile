@@ -9,7 +9,8 @@ RESOURCES  = PickleballScreensaver/Resources/paddle.png \
              PickleballScreensaver/Resources/background.png \
              PickleballScreensaver/Resources/thumbnail.png \
              PickleballScreensaver/Resources/thumbnail@2x.png \
-             PickleballScreensaver/Resources/drills.json
+             PickleballScreensaver/Resources/drills.json \
+             PickleballScreensaver/Resources/AppIcon.icns
 SDK        = $(shell xcrun --show-sdk-path)
 # Universal binary so the saver runs on both Apple Silicon and Intel Macs.
 ARCHS      = arm64 x86_64
