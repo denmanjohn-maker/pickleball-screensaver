@@ -1,5 +1,58 @@
 # Distributing the screensaver
 
+## Cutting a release
+
+Releases are built, signed, notarized, and published automatically by
+[.github/workflows/release.yml](.github/workflows/release.yml) whenever a
+`vX.Y` tag is pushed:
+
+1. Bump `CFBundleShortVersionString` in `PickleballScreensaver/Info.plist`
+   (the workflow fails if the tag and plist version disagree).
+2. Commit to `main`, then:
+
+   ```sh
+   git tag v1.1
+   git push origin v1.1
+   ```
+
+3. In ~10 minutes (notarization included) the release appears at
+   https://github.com/denmanjohn-maker/pickleball-screensaver/releases with
+   four assets: versioned zip/dmg plus version-less
+   `PickleballScreensaver.zip` / `PickleballScreensaver.dmg` copies. The
+   version-less names keep the download page's
+   `releases/latest/download/...` links stable across versions.
+
+You can also run the workflow manually from the Actions tab as a build-only
+dry run — it uploads the artifacts without creating a release.
+
+### One-time GitHub setup
+
+The workflow needs these repository secrets
+(**Settings → Secrets and variables → Actions**):
+
+| Secret | Value |
+|---|---|
+| `APPLE_CERT_APPLICATION_P12` | base64 of your Developer ID **Application** certificate exported as `.p12` |
+| `APPLE_CERT_INSTALLER_P12` | base64 of your Developer ID **Installer** certificate exported as `.p12` |
+| `APPLE_CERT_PASSWORD` | the password you set when exporting the `.p12` files |
+| `APPLE_SIGN_ID` | `Developer ID Application: Your Name (TEAMID)` |
+| `APPLE_INSTALLER_SIGN_ID` | `Developer ID Installer: Your Name (TEAMID)` |
+| `APPLE_ID` | the Apple ID email for notarization |
+| `APPLE_TEAM_ID` | your 10-character team ID |
+| `APPLE_APP_PASSWORD` | an [app-specific password](https://account.apple.com) for that Apple ID |
+
+To produce the cert values: in **Keychain Access**, select the certificate
+(with its private key), File → Export Items… as `.p12` with a password, then
+`base64 -i cert.p12 | pbcopy`. Find your identity strings with
+`security find-identity -v -p codesigning` (Application) and
+`security find-identity -v` (Installer). Export both certificates with the
+same password, or store them separately and adjust the workflow.
+
+The download page at
+https://denmanjohn-maker.github.io/pickleball-screensaver/ is GitHub Pages
+serving the `docs/` folder — enable it once under **Settings → Pages →
+Deploy from a branch → `main` / `docs`**.
+
 ## Build a release zip
 
 ```sh
