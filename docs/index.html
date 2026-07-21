@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pickleball Screensaver for macOS</title>
+<meta name="description" content="A macOS screensaver with an animated pickleball rally, live weather, nearby tournaments, and a drill of the day. Free download.">
+<link rel="icon" type="image/png" href="icon.png">
+<meta property="og:title" content="Pickleball Screensaver for macOS">
+<meta property="og:description" content="An animated pickleball rally on your Mac — with live weather, nearby tournaments, and a drill of the day.">
+<meta property="og:image" content="https://denmanjohn-maker.github.io/pickleball-screensaver/screenshot.jpg">
+<style>
+  :root {
+    --bg: #f6f8f7;
+    --card: #ffffff;
+    --text: #16211c;
+    --muted: #5b6b63;
+    --accent: #1f7a4d;
+    --accent-hover: #196340;
+    --border: #dde5e0;
+    --code-bg: #eef2f0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101815;
+      --card: #18231e;
+      --text: #e8efeb;
+      --muted: #93a49b;
+      --accent: #2f9e68;
+      --accent-hover: #38b578;
+      --border: #26332c;
+      --code-bg: #1e2b25;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
+  header { text-align: center; padding: 64px 0 40px; }
+  header img.icon {
+    width: 128px; height: 128px;
+    object-fit: cover;
+    /* macOS-style squircle-ish corners; the icns exports full-bleed. */
+    border-radius: 22.5%;
+    filter: drop-shadow(0 8px 24px rgba(0,0,0,.25));
+  }
+  h1 { font-size: 2.4rem; letter-spacing: -.02em; margin: 16px 0 8px; }
+  .tagline { font-size: 1.15rem; color: var(--muted); max-width: 34em; margin: 0 auto; }
+  .cta { margin: 32px 0 8px; }
+  .btn {
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    font-size: 1.1rem;
+    font-weight: 600;
+    padding: 14px 32px;
+    border-radius: 12px;
+    text-decoration: none;
+    transition: background .15s ease;
+  }
+  .btn:hover { background: var(--accent-hover); }
+  .sub {
+    margin-top: 12px;
+    font-size: .9rem;
+    color: var(--muted);
+  }
+  .sub a { color: var(--muted); }
+  .shot {
+    display: block;
+    width: 100%;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    box-shadow: 0 20px 50px rgba(0,0,0,.25);
+    margin: 40px 0;
+  }
+  section { margin: 56px 0; }
+  h2 { font-size: 1.5rem; letter-spacing: -.01em; margin-bottom: 16px; }
+  ul.features { list-style: none; padding: 0; display: grid; gap: 12px; }
+  @media (min-width: 640px) { ul.features { grid-template-columns: 1fr 1fr; } }
+  ul.features li {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 18px;
+  }
+  ul.features li strong { display: block; margin-bottom: 2px; }
+  ul.features li span { color: var(--muted); font-size: .95rem; }
+  ol.steps { padding-left: 1.3em; display: grid; gap: 8px; }
+  ol.steps li::marker { color: var(--accent); font-weight: 700; }
+  .note {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 14px 18px;
+    color: var(--muted);
+    font-size: .95rem;
+    margin-top: 20px;
+  }
+  .note strong { color: var(--text); }
+  code {
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 2px 6px;
+    font-size: .9em;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  footer {
+    border-top: 1px solid var(--border);
+    margin-top: 72px;
+    padding: 28px 0 48px;
+    text-align: center;
+    color: var(--muted);
+    font-size: .9rem;
+  }
+  footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <img class="icon" src="icon.png" alt="Pickleball Screensaver icon — a flaming pickleball comet" width="128" height="128">
+    <h1>Pickleball Screensaver</h1>
+    <p class="tagline">An animated pickleball rally on your Mac — with live weather, nearby tournaments, and a drill of the day.</p>
+    <div class="cta">
+      <a class="btn" href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest/download/PickleballScreensaver.dmg">
+        &#8595;&nbsp; Download for macOS
+      </a>
+      <p class="sub">
+        <span id="version"></span>Free &amp; open source · macOS 14+ · Apple Silicon &amp; Intel<br>
+        Prefer the raw <code>.saver</code>? <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest/download/PickleballScreensaver.zip">Download the zip</a>
+        · <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases">All releases</a>
+      </p>
+    </div>
+  </header>
+
+  <img class="shot" src="screenshot.jpg" alt="The screensaver showing a perspective pickleball court mid-rally, a drill-of-the-day card, scoreboard, and clock" width="1280" height="720">
+
+  <section>
+    <h2>What it does</h2>
+    <ul class="features">
+      <li><strong>Animated rally</strong><span>A perspective-projected court with animated players, serves, rushes, cross-court shots, and a live scoreboard.</span></li>
+      <li><strong>Live weather</strong><span>Current conditions for your city with a &ldquo;good day to play?&rdquo; badge, powered by Open-Meteo. No account needed.</span></li>
+      <li><strong>Nearby tournaments</strong><span>Upcoming tournaments near your city across 25 US metros, refreshed hourly.</span></li>
+      <li><strong>Drill of the day</strong><span>One practice drill each day, filterable by DUPR tier (3.0&ndash;5.0) or all levels.</span></li>
+      <li><strong>Widget rail</strong><span>Clock, weather, tournaments, and drill cards — each one toggleable in the Options sheet.</span></li>
+      <li><strong>Native &amp; lightweight</strong><span>A universal binary drawn with CoreGraphics. Signed and notarized, so macOS installs it without warnings.</span></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Install</h2>
+    <ol class="steps">
+      <li>Download and open <code>PickleballScreensaver.dmg</code>.</li>
+      <li>Double-click the installer package inside and follow the prompts. It installs for all users, so macOS asks for your password.</li>
+      <li>Open <strong>System Settings &rarr; Screen Saver</strong> and pick <strong>PickleballScreensaver</strong>.</li>
+      <li>Click <strong>Options&hellip;</strong> to turn on weather, tournaments, and the drill of the day.</li>
+    </ol>
+    <p class="note">
+      <strong>Doesn't appear in the list?</strong> Quit and reopen System Settings — macOS caches the screensaver list.
+      To uninstall, delete <code>PickleballScreensaver.saver</code> from <code>/Library/Screen Savers</code>.
+    </p>
+  </section>
+
+  <footer>
+    <p>
+      <a href="https://github.com/denmanjohn-maker/pickleball-screensaver">View on GitHub</a> ·
+      <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/issues">Report an issue</a>
+    </p>
+    <p>Requires macOS 14.0 or later. Runs on Apple Silicon and Intel Macs.</p>
+  </footer>
+
+</div>
+<script>
+  // Progressive enhancement: show the latest version next to the download
+  // button. The page works fine if this request fails.
+  fetch("https://api.github.com/repos/denmanjohn-maker/pickleball-screensaver/releases/latest")
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (release) {
+      if (release && release.tag_name) {
+        document.getElementById("version").textContent =
+          "Version " + release.tag_name.replace(/^v/, "") + " · ";
+      }
+    })
+    .catch(function () {});
+</script>
+</body>
+</html>

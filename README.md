@@ -1,6 +1,12 @@
 # pickleball-screensaver
 
+[![Latest release](https://img.shields.io/github/v/release/denmanjohn-maker/pickleball-screensaver)](https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest)
+
 A macOS screensaver that renders a stylized pickleball court with an animated singles rally and scoreboard.
+
+**Just want to install it?** Grab the signed, notarized installer from the
+**[download page](https://denmanjohn-maker.github.io/pickleball-screensaver/)** —
+no build tools needed.
 
 The left rail of widget-style cards shows the clock, current weather with a "good day to play?" badge, nearby tournaments, and drill of the day.
 
@@ -33,3 +39,12 @@ make install
 To build a zip you can share with other Macs, run `make dist` — see
 [DISTRIBUTING.md](DISTRIBUTING.md) for signing/notarization details and what
 recipients need to do.
+
+## Releases
+
+Pushing a `vX.Y` tag builds, signs, notarizes, and publishes a GitHub Release
+automatically — see [DISTRIBUTING.md](DISTRIBUTING.md#cutting-a-release) for
+the release process and the one-time secrets setup. The
+[download page](https://denmanjohn-maker.github.io/pickleball-screensaver/) is
+served by GitHub Pages from [docs/](docs/) and always points at the latest
+release.
