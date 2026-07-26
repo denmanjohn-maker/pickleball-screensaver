@@ -12,8 +12,12 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
     private var weatherSettings = WeatherSettings.load()
     private var tournamentSettings = TournamentSettings.load()
     private var drillSettings = DrillSettings.load()
+    private var themeSettings = ThemeSettings.load()
+    private var matchSettings = MatchSettings.load()
     private var pendingPlace: GeocodedPlace?
 
+    private let themePopup = NSPopUpButton()
+    private let formatPopup = NSPopUpButton()
     private let weatherCheck = NSButton(checkboxWithTitle: "Show weather", target: nil, action: nil)
     private let cityField = NSTextField(string: "")
     private let lookupButton = NSButton(title: "Look Up", target: nil, action: nil)
@@ -32,6 +36,10 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
                                            "4.0 Advanced", "5.0 Pro"]
     private static let tournamentWindowChoices = [1, 3]
     private static let tournamentWindowTitles = ["Next 1 month", "Next 3 months"]
+    private static let themeChoices = ["classic", "blacklight"]
+    private static let themeTitles = ["Classic", "Black Light"]
+    private static let formatChoices = ["doubles", "singles"]
+    private static let formatTitles = ["Doubles", "Singles"]
 
     private(set) lazy var window: NSWindow = buildWindow()
 
@@ -42,7 +50,11 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         weatherSettings = WeatherSettings.load()
         tournamentSettings = TournamentSettings.load()
         drillSettings = DrillSettings.load()
+        themeSettings = ThemeSettings.load()
+        matchSettings = MatchSettings.load()
         pendingPlace = nil
+        themePopup.selectItem(at: Self.themeChoices.firstIndex(of: themeSettings.theme) ?? 0)
+        formatPopup.selectItem(at: Self.formatChoices.firstIndex(of: matchSettings.format) ?? 0)
         weatherCheck.state = weatherSettings.enabled ? .on : .off
         cityField.stringValue = weatherSettings.locationName
         locationLabel.stringValue = weatherSettings.hasLocation
@@ -70,6 +82,8 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
             b.target = self
             b.action = #selector(unitChanged(_:))
         }
+        themePopup.addItems(withTitles: Self.themeTitles)
+        formatPopup.addItems(withTitles: Self.formatTitles)
         drillLevelPopup.addItems(withTitles: Self.drillLevelTitles)
         drillCheck.target = self
         drillCheck.action = #selector(drillToggled(_:))
@@ -95,8 +109,13 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
 
         let extrasHeader = NSTextField(labelWithString: "Overlays:")
         extrasHeader.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
+        let gameHeader = NSTextField(labelWithString: "Game:")
+        gameHeader.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
 
         let stack = NSStackView(views: [
+            gameHeader,
+            indent(hstack([NSTextField(labelWithString: "Theme:"), themePopup,
+                           NSTextField(labelWithString: "Format:"), formatPopup])),
             extrasHeader,
             weatherCheck,
             indent(hstack([cityField, lookupButton])),
@@ -220,6 +239,10 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         drillSettings.drillEnabled = drillCheck.state == .on
         drillSettings.drillLevel = Self.drillLevelChoices[max(0, drillLevelPopup.indexOfSelectedItem)]
         drillSettings.save()
+        themeSettings.theme = Self.themeChoices[max(0, themePopup.indexOfSelectedItem)]
+        themeSettings.save()
+        matchSettings.format = Self.formatChoices[max(0, formatPopup.indexOfSelectedItem)]
+        matchSettings.save()
         dismiss(.OK)
     }
 
