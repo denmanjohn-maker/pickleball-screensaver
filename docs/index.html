@@ -10,27 +10,17 @@
 <meta property="og:description" content="An animated pickleball rally on your Mac — with live weather, nearby tournaments, and a drill of the day.">
 <meta property="og:image" content="https://denmanjohn-maker.github.io/pickleball-screensaver/screenshot.jpg">
 <style>
+  /* Blacklight palette, mirroring Theme.blacklight in PickleballScreensaver/Theme.swift */
   :root {
-    --bg: #f6f8f7;
-    --card: #ffffff;
-    --text: #16211c;
-    --muted: #5b6b63;
-    --accent: #1f7a4d;
-    --accent-hover: #196340;
-    --border: #dde5e0;
-    --code-bg: #eef2f0;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #101815;
-      --card: #18231e;
-      --text: #e8efeb;
-      --muted: #93a49b;
-      --accent: #2f9e68;
-      --accent-hover: #38b578;
-      --border: #26332c;
-      --code-bg: #1e2b25;
-    }
+    color-scheme: dark;
+    --bg: #000000;
+    --card: #0a0410;
+    --text: #f2f6f3;
+    --muted: #8fa396;
+    --accent: #40ff66;
+    --accent-hover: #ff4dc7;
+    --border: #1d3324;
+    --code-bg: #0e1a12;
   }
   * { box-sizing: border-box; margin: 0; }
   body {
@@ -55,15 +45,19 @@
   .btn {
     display: inline-block;
     background: var(--accent);
-    color: #fff;
+    color: #000;
     font-size: 1.1rem;
-    font-weight: 600;
+    font-weight: 700;
     padding: 14px 32px;
     border-radius: 12px;
     text-decoration: none;
-    transition: background .15s ease;
+    box-shadow: 0 0 24px rgba(64, 255, 102, .35);
+    transition: background .15s ease, box-shadow .15s ease;
   }
-  .btn:hover { background: var(--accent-hover); }
+  .btn:hover {
+    background: var(--accent-hover);
+    box-shadow: 0 0 28px rgba(255, 77, 199, .45);
+  }
   .sub {
     margin-top: 12px;
     font-size: .9rem;
@@ -73,10 +67,11 @@
   .shot {
     display: block;
     width: 100%;
+    max-width: 720px;
+    margin: 40px auto;
     border-radius: 14px;
     border: 1px solid var(--border);
-    box-shadow: 0 20px 50px rgba(0,0,0,.25);
-    margin: 40px 0;
+    box-shadow: 0 0 40px rgba(64, 255, 102, .12);
   }
   section { margin: 56px 0; }
   h2 { font-size: 1.5rem; letter-spacing: -.01em; margin-bottom: 16px; }
@@ -140,12 +135,14 @@
     </div>
   </header>
 
-  <img class="shot" src="screenshot.jpg" alt="The screensaver showing a perspective pickleball court mid-rally with weather, tournaments, and drill-of-the-day widget cards, a scoreboard, and the clock" width="2000" height="1299">
+  <img class="shot" src="screenshot.jpg" alt="The screensaver in its black-light theme: a neon-outlined pickleball court mid-rally in doubles, with weather, tournaments, and drill-of-the-day widget cards, a scoreboard, and the clock" width="1280" height="720">
 
   <section>
     <h2>What it does</h2>
     <ul class="features">
       <li><strong>Animated rally</strong><span>A perspective-projected court with animated players, serves, rushes, cross-court shots, and a live scoreboard.</span></li>
+      <li><strong>Singles or doubles</strong><span>Pick your format in the Options sheet. Doubles rallies use the three-number score call with both partners serving.</span></li>
+      <li><strong>Black-light theme</strong><span>Switch from the classic court to a neon-on-black look, glow and all, right from the Options sheet.</span></li>
       <li><strong>Live weather</strong><span>Current conditions for your city with a &ldquo;good day to play?&rdquo; badge, powered by Open-Meteo. No account needed.</span></li>
       <li><strong>Nearby tournaments</strong><span>Upcoming tournaments near your city across 25 US metros, refreshed hourly.</span></li>
       <li><strong>Drill of the day</strong><span>One practice drill each day, filterable by DUPR tier (3.0&ndash;5.0) or all levels.</span></li>
@@ -160,7 +157,7 @@
       <li>Download and open <code>PickleballScreensaver.dmg</code>.</li>
       <li>Double-click the installer package inside and follow the prompts. It installs for all users, so macOS asks for your password.</li>
       <li>Open <strong>System Settings &rarr; Screen Saver</strong> and pick <strong>PickleballScreensaver</strong>.</li>
-      <li>Click <strong>Options&hellip;</strong> to turn on weather, tournaments, and the drill of the day.</li>
+      <li>Click <strong>Options&hellip;</strong> to turn on weather, tournaments, and the drill of the day, and to pick singles or doubles and the black-light theme.</li>
     </ol>
     <p class="note">
       <strong>Doesn't appear in the list?</strong> Quit and reopen System Settings — macOS caches the screensaver list.
