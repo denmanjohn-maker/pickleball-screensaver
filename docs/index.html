@@ -10,15 +10,18 @@
 <meta property="og:description" content="An animated pickleball rally on your Mac — with live weather, nearby tournaments, and a drill of the day.">
 <meta property="og:image" content="https://denmanjohn-maker.github.io/pickleball-screensaver/screenshot.jpg">
 <style>
-  /* Blacklight palette, mirroring Theme.blacklight in PickleballScreensaver/Theme.swift */
+  /* Palette sampled from Theme.blacklight in PickleballScreensaver/Theme.swift.
+     These are page roles, not a field-for-field copy of the theme struct — the
+     CSS --accent is the theme's courtLine/glassStroke green and --accent-hover
+     is its netTape pink, not its own `accent` (orange). */
   :root {
     color-scheme: dark;
-    --bg: #000000;
-    --card: #0a0410;
-    --text: #f2f6f3;
+    --bg: #000000;          /* backgroundBase */
+    --card: #0a0410;        /* cardFill */
+    --text: #f2f6f3;        /* textPrimary */
     --muted: #8fa396;
-    --accent: #40ff66;
-    --accent-hover: #ff4dc7;
+    --accent: #40ff66;      /* courtLine / glassStroke */
+    --accent-hover: #ff4dc7;/* netTape */
     --border: #1d3324;
     --code-bg: #0e1a12;
   }
@@ -58,6 +61,14 @@
     background: var(--accent-hover);
     box-shadow: 0 0 28px rgba(255, 77, 199, .45);
   }
+  /* Keyboard focus needs its own indicator: the hover glow alone is too subtle,
+     and the neon fills leave a default ring low-contrast. */
+  a:focus-visible {
+    outline: 3px solid var(--text);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+  .btn:focus-visible { outline-offset: 4px; }
   .sub {
     margin-top: 12px;
     font-size: .9rem;
