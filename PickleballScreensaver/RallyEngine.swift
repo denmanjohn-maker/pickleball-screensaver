@@ -184,6 +184,10 @@ final class RallyEngine {
     private(set) var farScore  = 0
     private(set) var nearServing = false
     private(set) var serverNumber = 2      // doubles: 1 or 2; game starts on 2
+    // The 0-0-2 game opener: the score CALLS server two, but the parity-court
+    // player serves — "2" only means their loss is an immediate side-out.
+    // Cleared at the first side-out, after which server 2 really is the partner.
+    private var openingService = true
     private(set) var nearGames = 0
     private(set) var farGames  = 0
     private(set) var gameBannerTimer: CGFloat = 0
@@ -207,6 +211,7 @@ final class RallyEngine {
         nearScore = 0; farScore = 0
         nearGames = 0; farGames = 0
         serverNumber = 2
+        openingService = true
         gameBannerTimer = 0
         nearServing = Bool.random(using: &rng)
         buildPlayers()
@@ -219,6 +224,7 @@ final class RallyEngine {
         format = f
         nearScore = 0; farScore = 0
         serverNumber = 2
+        openingService = true
         buildPlayers()
         beginBetweenPoints(firstDelay: 1.0)
     }
@@ -380,7 +386,7 @@ final class RallyEngine {
         let servers = indices(facing: servingFacing)
         let receivers = indices(facing: -servingFacing)
         let firstServer = servers.first(where: { players[$0].court == serveCourt }) ?? servers[0]
-        if format == .doubles && serverNumber == 2 && servers.count == 2 {
+        if format == .doubles && serverNumber == 2 && !openingService && servers.count == 2 {
             serverIdx = servers.first(where: { $0 != firstServer }) ?? firstServer
         } else {
             serverIdx = firstServer
@@ -580,18 +586,22 @@ final class RallyEngine {
     }
 
     private func stepRally(dt: CGFloat) {
-        let prevZ = ball.z
+        let prevX = ball.x, prevY = ball.y, prevZ = ball.z
         integrateBall(dt: dt, adjudicate: true)
         guard phase != .dead else { return }
 
         movePlayers(dt: dt)
         updateSwings(dt: dt)
 
-        // Net cord: the ball clips the tape, dies, and dribbles back
+        // Net cord: the ball clips the tape, dies, and dribbles back.
+        // Interpolate the crossing point between the pre- and post-step
+        // positions so the sag height is checked where the ball actually
+        // crossed, without re-deriving velocities around the gravity step.
         if (prevZ - 0.5) * (ball.z - 0.5) < 0 {
             let t = (0.5 - prevZ) / (ball.z - prevZ)
-            let yAtNet = (ball.y - bVel.y * dt) + bVel.y * dt * t
-            if yAtNet < Court.netTopY(ball.x) {
+            let yAtNet = prevY + (ball.y - prevY) * t
+            let xAtNet = prevX + (ball.x - prevX) * t
+            if yAtNet < Court.netTopY(xAtNet) {
                 ball.z = 0.5 - (bVel.z > 0 ? 0.012 : -0.012)
                 bVel.z = (bVel.z > 0 ? -1 : 1) * 0.04
                 bVel.x *= 0.15
@@ -943,9 +953,11 @@ final class RallyEngine {
                 // First server loses the rally: the partner serves next
                 serverNumber = 2
             } else {
-                // Side-out: serve passes to the other team
+                // Side-out: serve passes to the other team (and the 0-0-2
+                // opening exception is over)
                 nearServing.toggle()
                 serverNumber = 1
+                openingService = false
             }
         } else {
             if nearServing { nearScore += 1 } else { farScore += 1 }
@@ -962,6 +974,7 @@ final class RallyEngine {
                 gameBannerTimer = 3.0
                 nearScore = 0; farScore = 0
                 serverNumber = 2   // every game opens on the 0-0-2 exception
+                openingService = true
                 // Game winner (the server) serves first in the next game;
                 // fresh game, fresh chance of a lefty in the lineup
                 rollHands()
