@@ -3,27 +3,6 @@ import AppKit
 
 // MARK: - Types
 
-private struct Vec3 {
-    var x: CGFloat   // court width: -1 = left sideline, +1 = right sideline (0 = center line)
-    var y: CGFloat   // height above floor
-    var z: CGFloat   // depth: 0 = near baseline (bottom of screen), 1 = far baseline (top)
-}
-
-private struct PlayerState {
-    var x: CGFloat = 0          // body position across court width
-    var z: CGFloat = 0          // body depth (baseline, or advancing toward the kitchen)
-    var targetZ: CGFloat = 0    // depth the body moves toward each frame
-    var willRush = false        // designated to rush the kitchen after their next clean hit
-    var stance: CGFloat = 1     // contact-offset side for this swing: +1 = wx+ side, -1 = wx- side
-    var swingPhase = false
-    var swingT: CGFloat = 0     // normalized swing time [0, 1+recovery]
-    var swingAngle: CGFloat = 1.2 // rad from the horizontal contact pose: - = wound back/down, + = finish; default must match readyAngle
-    var faceDZ: CGFloat = 0     // paddle face-center depth offset from the body (world z)
-    var faceY: CGFloat = 0.08   // paddle face-center height (world y); default must match restFaceY
-    var contactY: CGFloat = 0.12 // predicted ball height at contact — face center meets it there
-    var armed = true            // ready to start a new backswing
-}
-
 // Ambient wallpaper animation: a paddle or ball drawn over the background
 // pattern in the same muted style, fading in, moving/spinning, fading out.
 private enum GhostKind { case paddle, ball }
@@ -61,76 +40,43 @@ private struct F3 {
 
 class PickleballScreensaverView: ScreenSaverView {
 
-    // Ball state
-    private var ball = Vec3(x: 0, y: 0.0, z: 0.04)
-    private var bVel = Vec3(x: 0, y: 0, z: 0.55)
-    private var trailPoints: [Vec3] = []
+    // The rally simulation — ball, players, shots, score. The view only reads
+    // its state for drawing and forwards the harness tunables.
+    private let engine = RallyEngine()
 
-    // Invisible players — left (z≈0, screen left) and right (z≈1, screen right).
-    // Both are right-handed: the left player faces +z so their forehand side is +x;
-    // the right player faces -z so theirs is -x. `side` (+1 left / -1 right) encodes both.
-    private var leftPlayer  = PlayerState()
-    private var rightPlayer = PlayerState()
-
-    // Physics
-    private let gravity:    CGFloat = -2.6
-    private let bounceDamp: CGFloat = 0.55
-    private let netHeight:  CGFloat = 0.32   // sideline/post height (36 in); netTopY(_:) gives the sagging top
-    private let zSpeed:     CGFloat = 0.70   // depth speed of the ball (units / sec)
-    private let paddleSpeed: CGFloat = 1.90  // lateral tracking speed (units / sec)
-    private let rushSpeed:  CGFloat = 0.25   // forward speed of a kitchen rush (units / sec)
-
-    // Court depth landmarks (normalised over 44 ft court length)
-    private let kitchenNearZ: CGFloat = 15.0 / 44.0   // ≈ 0.341
-    private let kitchenFarZ:  CGFloat = 29.0 / 44.0   // ≈ 0.659
-    private let leftPlayerZ:  CGFloat = 0.04
-    private let rightPlayerZ: CGFloat = 0.96
-    private let kitchenStandoffZ: CGFloat = 0.02      // rushers stop this far behind their kitchen line
+    // Harness tunables forwarded to the engine (scripts/preview sets these)
+    var thirdDriveFrac:  CGFloat { get { engine.thirdDriveFrac }  set { engine.thirdDriveFrac = newValue } }
+    var dinkCrossFrac:   CGFloat { get { engine.dinkCrossFrac }   set { engine.dinkCrossFrac = newValue } }
+    var endingErrorFrac: CGFloat { get { engine.endingErrorFrac } set { engine.endingErrorFrac = newValue } }
+    var leftyProb:       CGFloat { get { engine.leftyProb }       set { engine.leftyProb = newValue } }
+    var speedupProbPerDink: CGFloat { get { engine.speedupProbPerDink } set { engine.speedupProbPerDink = newValue } }
+    var lobProb:         CGFloat { get { engine.lobProb }         set { engine.lobProb = newValue } }
+    var simStats: ((String) -> Void)? { get { engine.statsSink } set { engine.statsSink = newValue } }
+    func reseed(_ seed: UInt64) { engine.reseed(seed) }
+    func setFormat(_ f: GameFormat) { engine.setFormat(f) }
 
     // Camera — 10 ft behind the near-left court corner (on the center-corner diagonal,
     // extended), looking down 45° at the court center
-    private let ftPerX: CGFloat = 10.0    // feet per world-x unit (half court width)
-    private let ftPerZ: CGFloat = 44.0    // feet per world-z unit (court length)
-    private let ftPerY: CGFloat = 9.375   // feet per world-y unit (netHeight 0.32 = 3 ft)
+    private let ftPerX = Court.ftPerX
+    private let ftPerZ = Court.ftPerZ
+    private let ftPerY = Court.ftPerY
     private let camPitch:    CGFloat = .pi / 4   // downward tilt from horizontal
     private let camBehindFt: CGFloat = 10.0      // horizontal distance beyond the corner
-
-    // Players (invisible bodies holding the paddles; both right-handed)
-    private let reach:     CGFloat = 0.18     // paddle contact offset from body (1.8 ft)
-    private let hitWindow: CGFloat = 0.45     // max |ball.x - contact point| for a clean hit
-
-    // Shot selection — `var` (not `let`) so an offscreen harness can force behaviors
-    var crossCourtProb:  CGFloat = 0.65   // backhands rip cross-court this often
-    var passingShotProb: CGFloat = 0.07   // shots allowed to sail out of the opponent's reach
-    var netFaultProb:    CGFloat = 0.05   // deliberate netted shots
-    var rushProb:        CGFloat = 0.35   // rallies where one player rushes the kitchen to volley
 
     // Real-world equipment sizes (drawn intentionally oversized for readability)
     private let paddleLenFt: CGFloat = (16.0 / 12.0) * 2.0   // regulation ~16 in, drawn 2x
     private let ballRFt: CGFloat = 0.121 * 3.5               // regulation 1.45 in radius, drawn 3.5x
     private var minBallPx: CGFloat { max(2.0, bounds.height * 0.004) }   // keep the ball visible at the far court
 
-    // Swing shape — the paddle sweeps back and down into the windup, then makes
-    // one fluid low-to-high forward stroke. Ball contact lands at the exact
-    // midpoint of that stroke with the face horizontal and the ball on the face
-    // center; the finish is forward and up, then the paddle settles back to the
-    // ready position, held upright at readyAngle.
-    // Angles are relative to the horizontal contact pose (0 = face at the net).
-    private let swingDuration:  CGFloat = 0.50   // seconds, windup through finish
-    private let backswingFrac:  CGFloat = 0.45   // fraction of the swing spent going back and down
-    private var contactFrac: CGFloat { backswingFrac + (1 - backswingFrac) / 2 }
-    private let recoveryFrac:   CGFloat = 0.50   // extra fraction to settle back to ready after the finish
-    private let backswingAngle: CGFloat = -1.6   // rad, head hanging low behind the body
-    private let followAngle:    CGFloat = 0.8    // rad, high finish past the net
-    private let readyAngle:     CGFloat = 1.2    // rad, paddle held up in the ready position
-    private let swingLen:       CGFloat = 0.075  // stroke depth each side of contact (≈3.3 ft)
-    private let swingDrop:      CGFloat = 0.13   // how far below contact height the stroke bottoms out
-    private let restFaceY:      CGFloat = 0.08   // face-center height at the ready position
+    // Every drawing color comes from the active theme (Classic / Black Light)
+    private var theme: Theme = .classic
 
-    // Colors (matched to reference photo)
-    private let greenCourt = CGColor(red: 0.30, green: 0.53, blue: 0.40, alpha: 1)
-    private let blueBox    = CGColor(red: 0.13, green: 0.32, blue: 0.62, alpha: 1)
-    private let whiteLine  = CGColor(red: 1, green: 1, blue: 1, alpha: 0.95)
+    func applyTheme(_ t: Theme) {
+        theme = t
+        bgScaledCache = nil       // wallpaper participation differs per theme
+        tintedPaddleCache = nil   // sprite tint differs per theme
+        setNeedsDisplay(bounds)
+    }
 
     // Weather (fetched by WeatherProvider from the animation loop)
     private var weatherProvider: WeatherProvider?
@@ -145,16 +91,13 @@ class PickleballScreensaverView: ScreenSaverView {
     // Shared formatters and accent — the overlays redraw every frame
     private let timeFmt: DateFormatter = { let f = DateFormatter(); f.dateFormat = "h:mm a"; return f }()
     private let dayFmt: DateFormatter = { let f = DateFormatter(); f.dateFormat = "EEEE, MMMM d"; return f }()
-    private let accentYellow = NSColor(calibratedRed: 0.96, green: 0.82, blue: 0.05, alpha: 1)
-
-    // Ball spin
-    private var ballSpin: CGFloat = 0
+    private var accentYellow: NSColor { theme.accent }
 
     // Turntable spin — a full 360° yaw of the scene every minute on the minute
     private var courtYaw: CGFloat = 0     // current angle, rad
     private var spinT: CGFloat = -1       // -1 = idle, else 0..1 progress
     private let spinDuration: CGFloat = 6.0
-    private var lastMinuteMark = 0
+    private var lastMinuteMark = -1       // -1 = unseeded (minute 0 is a real value in the harness)
 
     // Ambient wallpaper ghosts (paddle spins, ball rolls by at random times)
     private var ghosts: [Ghost] = []
@@ -168,18 +111,8 @@ class PickleballScreensaverView: ScreenSaverView {
     private let tournamentPageInterval: CGFloat = 6.0   // seconds a page is shown
     private let tournamentFadeDuration: CGFloat = 0.6   // seconds faded in/out at each edge
 
-    // Rally state
+    // Frame timing
     private var lastFrameTime: TimeInterval = 0
-    private var faultTimer: CGFloat = 0
-    private var rallyLostByLeft = false   // who lost the rally that just ended
-
-    // Score — singles side-out scoring: only the server can score; games to 11, win by 2
-    private var leftScore  = 0
-    private var rightScore = 0
-    private var leftServing = Bool.random()
-    private var leftGames  = 0
-    private var rightGames = 0
-    private var gameBannerTimer: CGFloat = 0
 
     // MARK: - Init
 
@@ -196,7 +129,8 @@ class PickleballScreensaverView: ScreenSaverView {
     private func setup() {
         animationTimeInterval = 1.0 / 60.0
         wantsLayer = true
-        resetRally(leftServes: leftServing)
+        theme = Theme.named(ThemeSettings.load().theme)
+        engine.setFormat(GameFormat(rawValue: MatchSettings.load().format) ?? .doubles)
         let drillSettings = DrillSettings.load()
         drillEnabled = drillSettings.drillEnabled
         drillLevel = drillSettings.drillLevel
@@ -278,66 +212,6 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func proj(_ v: Vec3) -> CGPoint { proj(v.x, v.z, v.y) }
 
-    // MARK: - Launch math
-    // Solve vy0 so the ball is at height (netHeight+margin) when it reaches the net (z=0.5).
-    // y(t) = fromY + vy0*t + 0.5*g*t² ; t = |0.5 - fromZ| / zSpd
-    private func launchVy(fromZ: CGFloat, fromY: CGFloat, zSpd: CGFloat, margin: CGFloat) -> CGFloat {
-        let tNet = max(0.0001, abs(0.5 - fromZ) / zSpd)
-        return (netHeight + margin - fromY - 0.5 * gravity * tNet * tNet) / tNet
-    }
-
-    // MARK: - Reset
-
-    private func resetRally(leftServes: Bool) {
-        let startZ = leftServes ? leftPlayerZ : rightPlayerZ
-        let dir: CGFloat = leftServes ? 1 : -1
-        ball = Vec3(x: CGFloat.random(in: -0.4...0.4), y: 0.02, z: startZ)
-        let vy0 = launchVy(fromZ: startZ, fromY: ball.y, zSpd: zSpeed, margin: netHeight * 0.7)
-        bVel = Vec3(x: CGFloat.random(in: -0.1...0.1), y: vy0, z: dir * zSpeed)
-        leftPlayer  = PlayerState()
-        rightPlayer = PlayerState()
-        leftPlayer.z  = leftPlayerZ;  leftPlayer.targetZ  = leftPlayerZ
-        rightPlayer.z = rightPlayerZ; rightPlayer.targetZ = rightPlayerZ
-        // Some rallies feature one player following a shot in to volley
-        if CGFloat.random(in: 0...1) < rushProb {
-            if Bool.random() { leftPlayer.willRush = true } else { rightPlayer.willRush = true }
-        }
-        // Server plays a follow-through from the contact pose
-        if leftServes {
-            leftPlayer.x = ball.x - reach
-            leftPlayer.contactY = max(0.03, ball.y)
-            leftPlayer.swingPhase = true; leftPlayer.swingT = contactFrac
-        } else {
-            rightPlayer.x = ball.x + reach
-            rightPlayer.contactY = max(0.03, ball.y)
-            rightPlayer.swingPhase = true; rightPlayer.swingT = contactFrac
-        }
-        trailPoints.removeAll()
-        faultTimer = 0
-        ballSpin = 0
-    }
-
-    // Resolve the finished rally under side-out rules: the server keeps serving
-    // and scores when they win; losing the rally as the server is a side-out
-    // (serve passes, no point). Games to 11, win by 2.
-    private func scoreRally() {
-        let serverLost = (leftServing == rallyLostByLeft)
-        if serverLost {
-            leftServing.toggle()
-        } else {
-            if leftServing { leftScore += 1 } else { rightScore += 1 }
-            let server   = leftServing ? leftScore : rightScore
-            let receiver = leftServing ? rightScore : leftScore
-            if server >= 11 && server - receiver >= 2 {
-                if leftServing { leftGames += 1 } else { rightGames += 1 }
-                gameBannerTimer = 3.0
-                leftScore = 0; rightScore = 0
-                // Game winner (the server) serves first in the next game
-            }
-        }
-        resetRally(leftServes: leftServing)
-    }
-
     // MARK: - Animation loop
 
     override func animateOneFrame() {
@@ -354,7 +228,7 @@ class PickleballScreensaverView: ScreenSaverView {
 
         // Turntable spin: kick off at every wall-clock minute boundary
         let minuteMark = Int(now / 60)
-        if lastMinuteMark == 0 { lastMinuteMark = minuteMark }   // no spin at launch
+        if lastMinuteMark == -1 { lastMinuteMark = minuteMark }   // no spin at launch
         if minuteMark != lastMinuteMark { lastMinuteMark = minuteMark; spinT = 0 }
         if spinT >= 0 {
             spinT += dt / spinDuration
@@ -372,87 +246,8 @@ class PickleballScreensaverView: ScreenSaverView {
             tournamentPageIndex += 1
         }
 
-        if gameBannerTimer > 0 { gameBannerTimer -= dt }
-
-        if faultTimer > 0 {
-            faultTimer -= dt
-            // Let the missed ball sail past (stopping well before the camera
-            // plane) while an in-progress swing finishes as a natural whiff
-            if ball.z > -0.15 && ball.z < 1.15 { integrateBall(dt: dt) }
-            updateSwing(&leftPlayer,  side:  1, dt: dt)
-            updateSwing(&rightPlayer, side: -1, dt: dt)
-            if faultTimer <= 0 { scoreRally() }
-            setNeedsDisplay(bounds)
-            return
-        }
-
-        let prevZ = ball.z
-        integrateBall(dt: dt)
-
-        // Invisible players run to intercept and wind up their swings
-        updatePlayer(&leftPlayer,  side:  1, approaching: bVel.z < 0, dt: dt)
-        updatePlayer(&rightPlayer, side: -1, approaching: bVel.z > 0, dt: dt)
-
-        updateSwing(&leftPlayer,  side:  1, dt: dt)
-        updateSwing(&rightPlayer, side: -1, dt: dt)
-
-        // Net clearance safety check (against the sagging top at the crossing point)
-        if (prevZ - 0.5) * (ball.z - 0.5) < 0 {
-            let t = (0.5 - prevZ) / (ball.z - prevZ)
-            let yAtNet = (ball.y - bVel.y * dt) + bVel.y * dt * t
-            if yAtNet < netTopY(ball.x) {
-                faultTimer = 1.0
-                rallyLostByLeft = bVel.z > 0   // netted shot came off the left player
-            }
-        }
-
-        // Hit detection — left player (ball arriving at screen left)
-        if bVel.z < 0 && ball.z <= leftPlayer.z {
-            if abs(ball.x - contactX(leftPlayer, side: 1)) < hitWindow {
-                returnBall(player: &leftPlayer, opponent: rightPlayer, side: 1, goingFar: true)
-            } else {
-                faultTimer = 1.0
-                rallyLostByLeft = true         // failed return
-            }
-        }
-
-        // Hit detection — right player (ball arriving at screen right)
-        if bVel.z > 0 && ball.z >= rightPlayer.z {
-            if abs(ball.x - contactX(rightPlayer, side: -1)) < hitWindow {
-                returnBall(player: &rightPlayer, opponent: leftPlayer, side: -1, goingFar: false)
-            } else {
-                faultTimer = 1.0
-                rallyLostByLeft = false        // failed return
-            }
-        }
-
-        // Spin
-        let linearSpd = sqrt(bVel.x * bVel.x + bVel.z * bVel.z)
-        ballSpin += linearSpd * 18.0 * dt
-
-        // Trail
-        trailPoints.append(ball)
-        if trailPoints.count > 18 { trailPoints.removeFirst() }
-
+        engine.step(dt: dt)
         setNeedsDisplay(bounds)
-    }
-
-    // Euler-integrate the ball with floor and sideline bounces
-    private func integrateBall(dt: CGFloat) {
-        ball.y += bVel.y * dt
-        bVel.y += gravity * dt
-        ball.x += bVel.x * dt
-        ball.z += bVel.z * dt
-
-        // Floor bounce
-        if ball.y < 0 {
-            ball.y = 0
-            bVel.y = abs(bVel.y) * bounceDamp
-        }
-
-        // Sideline bounce
-        if ball.x < -1 { ball.x = -1; bVel.x =  abs(bVel.x) }
-        if ball.x >  1 { ball.x =  1; bVel.x = -abs(bVel.x) }
     }
 
     // MARK: - Ambient wallpaper ghosts
@@ -532,186 +327,6 @@ class PickleballScreensaverView: ScreenSaverView {
         return nil
     }
 
-    // Extrapolate the ball's x to when it reaches depth targetZ (clamped to court)
-    private func predictX(toZ targetZ: CGFloat) -> CGFloat {
-        guard abs(bVel.z) > 0.0001 else { return ball.x }
-        let t = (targetZ - ball.z) / bVel.z
-        if t < 0 { return ball.x }
-        var px = ball.x + bVel.x * t
-        // account for one sideline reflection
-        if px < -1 { px = -2 - px }
-        if px >  1 { px =  2 - px }
-        return max(-1, min(1, px))
-    }
-
-    // Simulate the ball's height at depth targetZ (gravity + floor bounces)
-    private func predictY(toZ targetZ: CGFloat) -> CGFloat {
-        guard abs(bVel.z) > 0.0001 else { return ball.y }
-        var t = (targetZ - ball.z) / bVel.z
-        guard t > 0 else { return ball.y }
-        var y = ball.y, vy = bVel.y
-        let step: CGFloat = 1.0 / 120.0
-        while t > 0 {
-            let dt = min(step, t)
-            y += vy * dt
-            vy += gravity * dt
-            if y < 0 { y = 0; vy = abs(vy) * bounceDamp }
-            t -= dt
-        }
-        return y
-    }
-
-    private func returnBall(player: inout PlayerState, opponent: PlayerState,
-                            side: CGFloat, goingFar: Bool) {
-        ball.z = player.z
-        ball.y = max(ball.y, 0.02)
-        let dir: CGFloat = goingFar ? 1 : -1
-
-        // Land the ball where the opponent will take it: their kitchen
-        // standoff if they are rushing, else their baseline
-        let tTarget = max(0.05, abs(opponent.targetZ - player.z) / zSpeed)
-
-        // Shot selection: forehands drive straight; backhands usually rip
-        // cross-court (singles patterns, like tennis), sometimes down the
-        // line so rallies don't lock into a permanent cross-court loop
-        let backhand = player.stance != side
-        var targetX: CGFloat
-        if backhand && CGFloat.random(in: 0...1) < crossCourtProb {
-            let away: CGFloat = ball.x >= 0 ? -1 : 1
-            targetX = away * CGFloat.random(in: 0.4...0.8)
-        } else {
-            targetX = ball.x + CGFloat.random(in: -0.15...0.15)
-        }
-        // Keep the shot reachable unless it's a deliberate passing shot —
-        // those sail wide of the opponent and end the rally naturally
-        if CGFloat.random(in: 0...1) >= passingShotProb {
-            let cover = paddleSpeed * tTarget * 0.85 + hitWindow * 0.8
-            targetX = max(opponent.x - cover, min(opponent.x + cover, targetX))
-        }
-        targetX = max(-0.85, min(0.85, targetX))
-
-        // Mostly clean returns; occasionally one is netted, which ends the
-        // rally and drives the scoring (the clearance check attributes the
-        // fault). Volleys taken up at the kitchen are hit flatter so
-        // put-aways stay playable.
-        let atBaseline = abs(player.z - (goingFar ? leftPlayerZ : rightPlayerZ)) < 0.01
-        let netted = CGFloat.random(in: 0...1) < netFaultProb
-        let margin = netted
-            ? netHeight * CGFloat.random(in: -0.15 ... -0.03)
-            : netHeight * (atBaseline ? CGFloat.random(in: 0.6...1.0)
-                                      : CGFloat.random(in: 0.2...0.6))
-        bVel.y = launchVy(fromZ: player.z, fromY: ball.y, zSpd: zSpeed, margin: margin)
-        bVel.z = dir * zSpeed
-        bVel.x = (targetX - ball.x) / tTarget
-
-        // Follow a clean shot in: the designated rusher advances to the
-        // kitchen line and volleys from there for the rest of the rally
-        if player.willRush && !netted {
-            player.targetZ = goingFar ? kitchenNearZ - kitchenStandoffZ
-                                      : kitchenFarZ + kitchenStandoffZ
-            player.willRush = false
-        }
-
-        // The windup normally began contactFrac of a swing ago; if it didn't
-        // (edge case), snap to the contact pose so the follow-through plays from impact.
-        player.contactY = min(0.70, max(0.03, ball.y))   // face center meets the ball exactly here
-        if !player.swingPhase || player.swingT < contactFrac {
-            player.swingPhase = true
-            player.swingT = contactFrac
-        }
-    }
-
-    // Body movement + swing anticipation for one invisible player.
-    // side: +1 = left player (faces +z), -1 = right player (faces -z).
-    // For right-handed players the forehand side in world-x equals `side`.
-    private func updatePlayer(_ p: inout PlayerState, side: CGFloat,
-                              approaching: Bool, dt: CGFloat) {
-        // Run so the forehand contact point meets the predicted ball; drift home otherwise
-        let target = approaching ? predictX(toZ: p.z) - side * reach : 0
-        let spd = paddleSpeed * dt * (approaching ? 1.0 : 0.6)
-        p.x = moveVal(p.x, toward: target, speed: spd, lo: -1, hi: 1)
-
-        // A kitchen rush keeps advancing whether or not the ball is coming
-        p.z = moveVal(p.z, toward: p.targetZ, speed: rushSpeed * dt, lo: 0, hi: 1)
-
-        guard approaching else { p.armed = true; return }
-
-        // Start the backswing so contact lands at the midpoint of the forward sweep
-        let tta = (p.z - ball.z) / bVel.z   // time to arrival, seconds
-        guard tta > 0 else { return }
-        if p.armed && tta <= contactFrac * swingDuration {
-            // Forehand or backhand: which side of the body will the ball arrive on?
-            p.stance = (predictX(toZ: p.z) - p.x >= 0) ? 1 : -1
-            // Aim the swing so the face center arrives at the ball's height
-            p.contactY = min(0.70, max(0.03, predictY(toZ: p.z)))
-            p.swingPhase = true
-            p.swingT = max(0, contactFrac - tta / swingDuration)  // frame-quantization catch-up
-            p.armed = false
-        }
-    }
-
-    // Where this player's paddle meets the ball, given their current stance
-    private func contactX(_ p: PlayerState, side: CGFloat) -> CGFloat {
-        p.x + (p.swingPhase ? p.stance : side) * reach
-    }
-
-    // Where the paddle is drawn: at the contact offset while swinging,
-    // otherwise held ready slightly on the forehand side
-    private func paddleWx(_ p: PlayerState, side: CGFloat) -> CGFloat {
-        p.x + (p.swingPhase ? p.stance : side * 0.7) * reach
-    }
-
-    // Advance the swing pose. The paddle face center traces the stroke path:
-    // ready → back-and-down windup → one fluid low-to-high sweep whose midpoint
-    // is ball contact (face horizontal, ball on the face center) → high forward
-    // finish → settle back to ready. `side` is the direction of the net in
-    // world z for this player (+1 left player, -1 right player).
-    private func updateSwing(_ p: inout PlayerState, side: CGFloat, dt: CGFloat) {
-        guard p.swingPhase else { return }
-        p.swingT += dt / swingDuration
-        let yLow  = max(0.03, p.contactY - swingDrop)
-        let yHigh = p.contactY + (p.contactY - yLow)   // symmetric: contact at the sweep midpoint
-        let t = p.swingT
-        if t < backswingFrac {
-            // Windup: paddle drifts back (away from the net) and down
-            let e = smoothstep(t / backswingFrac)
-            p.faceDZ = -side * swingLen * e
-            p.faceY  = restFaceY + (yLow - restFaceY) * e
-            p.swingAngle = readyAngle + (backswingAngle - readyAngle) * e
-        } else if t < 1 {
-            // Forward stroke: one continuous low-back → high-forward sweep,
-            // fastest at the middle where the ball is struck. The angle is
-            // interpolated piecewise so the face is exactly horizontal at the
-            // midpoint despite the asymmetric windup/finish angles.
-            let e = smoothstep((t - backswingFrac) / (1 - backswingFrac))
-            p.faceDZ = side * swingLen * (2 * e - 1)
-            p.faceY  = yLow + (yHigh - yLow) * e
-            p.swingAngle = e < 0.5 ? backswingAngle * (1 - 2 * e)
-                                   : followAngle * (2 * e - 1)
-        } else if t < 1 + recoveryFrac {
-            // Recovery: ease from the high finish back to the ready position
-            let e = smoothstep((t - 1) / recoveryFrac)
-            p.faceDZ = side * swingLen * (1 - e)
-            p.faceY  = yHigh + (restFaceY - yHigh) * e
-            p.swingAngle = followAngle + (readyAngle - followAngle) * e
-        } else {
-            p.swingPhase = false
-            p.swingT = 0; p.swingAngle = readyAngle; p.faceDZ = 0; p.faceY = restFaceY
-        }
-    }
-
-    // Ease curve: gentle start and finish, peak velocity mid-segment
-    private func smoothstep(_ x: CGFloat) -> CGFloat {
-        let c = max(0, min(1, x))
-        return c * c * (3 - 2 * c)
-    }
-
-    private func moveVal(_ v: CGFloat, toward t: CGFloat, speed: CGFloat, lo: CGFloat, hi: CGFloat) -> CGFloat {
-        let d = t - v
-        let step = min(abs(d), speed) * (d >= 0 ? 1 : -1)
-        return max(lo, min(hi, v + step))
-    }
-
     // MARK: - Draw
 
     override func draw(_ rect: NSRect) {
@@ -723,18 +338,24 @@ class PickleballScreensaverView: ScreenSaverView {
         drawTrail(ctx: ctx)
 
         // Painter's algorithm: sprites beyond the net plane (wz > 0.5) render first,
-        // then the net, then near-side sprites; each group sorted farthest-first.
-        let sprites: [(wz: CGFloat, depth: CGFloat, draw: () -> Void)] = [
-            (ball.z, unitProj(ball.x, ball.z, ball.y).depth,
+        // then the net, then near-side sprites; each group sorted farthest-first
+        // (index breaks depth ties so partners never flicker in sort order).
+        let ball = engine.ball
+        var sprites: [(wz: CGFloat, depth: CGFloat, order: Int, draw: () -> Void)] = [
+            (ball.z, unitProj(ball.x, ball.z, ball.y).depth, -1,
              { self.drawBall(ctx: ctx) }),
-            (leftPlayer.z, unitProj(paddleWx(leftPlayer, side: 1), leftPlayer.z, 0.1).depth,
-             { self.drawPaddle(ctx: ctx, state: self.leftPlayer, wz: self.leftPlayer.z, side: 1) }),
-            (rightPlayer.z, unitProj(paddleWx(rightPlayer, side: -1), rightPlayer.z, 0.1).depth,
-             { self.drawPaddle(ctx: ctx, state: self.rightPlayer, wz: self.rightPlayer.z, side: -1) }),
         ]
-        for s in sprites.filter({ $0.wz > 0.5 }).sorted(by: { $0.depth > $1.depth }) { s.draw() }
+        for p in engine.players {
+            sprites.append((p.z, unitProj(engine.paddleWx(p), p.z, 0.1).depth, sprites.count,
+                            { self.drawPaddle(ctx: ctx, state: p, wz: p.z, side: p.facing) }))
+        }
+        let byDepth: ((wz: CGFloat, depth: CGFloat, order: Int, draw: () -> Void),
+                      (wz: CGFloat, depth: CGFloat, order: Int, draw: () -> Void)) -> Bool = {
+            $0.depth != $1.depth ? $0.depth > $1.depth : $0.order < $1.order
+        }
+        for s in sprites.filter({ $0.wz > 0.5 }).sorted(by: byDepth) { s.draw() }
         drawNet(ctx: ctx)
-        for s in sprites.filter({ $0.wz <= 0.5 }).sorted(by: { $0.depth > $1.depth }) { s.draw() }
+        for s in sprites.filter({ $0.wz <= 0.5 }).sorted(by: byDepth) { s.draw() }
 
         // Widget-style left rail: weather / tournaments cards flowing down from
         // the top margin, with drill-of-the-day pinned to the bottom margin.
@@ -774,15 +395,15 @@ class PickleballScreensaverView: ScreenSaverView {
     private var bgScaledCache: (size: CGSize, image: CGImage)?
 
     private func drawBackground(ctx: CGContext, rect: NSRect) {
-        ctx.setFillColor(CGColor(red: 0.05, green: 0.09, blue: 0.10, alpha: 1))
+        ctx.setFillColor(theme.backgroundBase)
         ctx.fill(rect)
-        if let img = scaledBackground() {
+        if theme.usesBackgroundImage, let img = scaledBackground() {
             ctx.draw(img, in: bounds)
             return
         }
-        // Fallback wash if the wallpaper asset is missing
-        let colors = [CGColor(red: 0.10, green: 0.22, blue: 0.20, alpha: 0.55),
-                      CGColor(red: 0.05, green: 0.09, blue: 0.10, alpha: 0)] as CFArray
+        // Radial wash: the fallback when the wallpaper asset is missing, and
+        // the intended look for themes that skip the wallpaper entirely
+        let colors = [theme.backgroundGlowInner, theme.backgroundGlowOuter] as CFArray
         let locs: [CGFloat] = [0, 1]
         if let sp = CGColorSpace(name: CGColorSpace.sRGB),
            let gr = CGGradient(colorsSpace: sp, colors: colors, locations: locs) {
@@ -817,7 +438,7 @@ class PickleballScreensaverView: ScreenSaverView {
 
     // MARK: - Ghost drawing (over the wallpaper, under everything else)
 
-    private let ghostFill = CGColor(red: 0.12, green: 0.24, blue: 0.23, alpha: 1)
+    private var ghostFill: CGColor { theme.ghostFill }
 
     private func drawGhosts(ctx: CGContext) {
         for g in ghosts where g.alpha > 0 {
@@ -882,16 +503,18 @@ class PickleballScreensaverView: ScreenSaverView {
         fillQuad(ctx,
                  proj(-1, 0, 0), proj(1, 0, 0),
                  proj(1, 1, 0),  proj(-1, 1, 0),
-                 color: greenCourt)
+                 color: theme.courtSurface)
         ctx.restoreGState()
 
-        // Blue service boxes (kitchen between kitchenNearZ..kitchenFarZ stays green)
+        // Service boxes (kitchen between kitchenNearZ..kitchenFarZ keeps the surface color)
+        let kitchenNearZ = Court.kitchenNearZ, kitchenFarZ = Court.kitchenFarZ
+        let box = theme.serviceBox
         // Near half: baseline (0) → near kitchen line
-        fillQuad(ctx, proj(-1, 0, 0), proj(0, 0, 0), proj(0, kitchenNearZ, 0), proj(-1, kitchenNearZ, 0), color: blueBox)
-        fillQuad(ctx, proj(0, 0, 0),  proj(1, 0, 0), proj(1, kitchenNearZ, 0), proj(0, kitchenNearZ, 0),  color: blueBox)
+        fillQuad(ctx, proj(-1, 0, 0), proj(0, 0, 0), proj(0, kitchenNearZ, 0), proj(-1, kitchenNearZ, 0), color: box)
+        fillQuad(ctx, proj(0, 0, 0),  proj(1, 0, 0), proj(1, kitchenNearZ, 0), proj(0, kitchenNearZ, 0),  color: box)
         // Far half: far kitchen line → far baseline (1)
-        fillQuad(ctx, proj(-1, kitchenFarZ, 0), proj(0, kitchenFarZ, 0), proj(0, 1, 0), proj(-1, 1, 0), color: blueBox)
-        fillQuad(ctx, proj(0, kitchenFarZ, 0),  proj(1, kitchenFarZ, 0), proj(1, 1, 0), proj(0, 1, 0),  color: blueBox)
+        fillQuad(ctx, proj(-1, kitchenFarZ, 0), proj(0, kitchenFarZ, 0), proj(0, 1, 0), proj(-1, 1, 0), color: box)
+        fillQuad(ctx, proj(0, kitchenFarZ, 0),  proj(1, kitchenFarZ, 0), proj(1, 1, 0), proj(0, 1, 0),  color: box)
 
         // Court surface texture — perspective-correct horizontal + vertical grain lines
         ctx.saveGState()
@@ -902,7 +525,7 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.addPath(courtPath); ctx.clip()
 
         // Horizontal rows (follow court depth perspective)
-        ctx.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.18))
+        ctx.setStrokeColor(theme.grainRow)
         ctx.setLineWidth(0.7)
         var tz: CGFloat = -0.02
         while tz <= 1.1 {
@@ -911,7 +534,7 @@ class PickleballScreensaverView: ScreenSaverView {
         }
 
         // Vertical columns (fixed-width in world-x, narrow toward the far end)
-        ctx.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.08))
+        ctx.setStrokeColor(theme.grainCol)
         ctx.setLineWidth(0.5)
         var tx: CGFloat = -1.15
         while tx <= 1.15 {
@@ -921,8 +544,15 @@ class PickleballScreensaverView: ScreenSaverView {
 
         ctx.restoreGState()
 
-        // White lines
-        ctx.setStrokeColor(whiteLine)
+        // Court lines — under black light they glow, one blur pass for the
+        // whole group so the cost stays flat
+        if theme.glowStrength > 0 {
+            ctx.saveGState()
+            ctx.setShadow(offset: .zero, blur: bounds.height * 0.012 * theme.glowStrength,
+                          color: theme.courtLine)
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        }
+        ctx.setStrokeColor(theme.courtLine)
         ctx.setLineWidth(2.5)
         strokeQuad(ctx, proj(-1, 0, 0), proj(1, 0, 0), proj(1, 1, 0), proj(-1, 1, 0))   // outer boundary
 
@@ -934,14 +564,15 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.setLineWidth(2.0)
         line(ctx, from: proj(0, 0, 0),            to: proj(0, kitchenNearZ, 0))
         line(ctx, from: proj(0, kitchenFarZ, 0),  to: proj(0, 1, 0))
+        if theme.glowStrength > 0 {
+            ctx.endTransparencyLayer()
+            ctx.restoreGState()
+        }
     }
 
     // MARK: - Net (vertical band at z = 0.5, seen at an angle from the corner camera)
 
-    // Regulation net height: 36 in at the sidelines sagging to 34 in at the center
-    private func netTopY(_ wx: CGFloat) -> CGFloat {
-        (34 + 2 * wx * wx) / (12 * ftPerY)
-    }
+    private func netTopY(_ wx: CGFloat) -> CGFloat { Court.netTopY(wx) }
 
     private func drawNet(ctx: CGContext) {
         let sagSteps = 16
@@ -952,7 +583,7 @@ class PickleballScreensaverView: ScreenSaverView {
         let bl = proj(-1, 0.5, 0); let br = proj(1, 0.5, 0)
 
         // Mesh body (top edge follows the sag)
-        ctx.setFillColor(CGColor(red: 0.09, green: 0.10, blue: 0.11, alpha: 0.50))
+        ctx.setFillColor(theme.netMesh)
         ctx.beginPath()
         ctx.move(to: bl)
         ctx.addLine(to: br)
@@ -961,7 +592,7 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.fillPath()
 
         // Vertical strands
-        ctx.setStrokeColor(CGColor(red: 0.16, green: 0.17, blue: 0.18, alpha: 0.65))
+        ctx.setStrokeColor(theme.netStrand)
         ctx.setLineWidth(0.8)
         let vSteps = 55
         for i in 0...vSteps {
@@ -981,14 +612,20 @@ class PickleballScreensaverView: ScreenSaverView {
             ctx.strokePath()
         }
 
-        // White top tape
-        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.95))
+        // Top tape (glows under black light)
+        if theme.glowStrength > 0 {
+            ctx.saveGState()
+            ctx.setShadow(offset: .zero, blur: bounds.height * 0.012 * theme.glowStrength,
+                          color: theme.netTape)
+        }
+        ctx.setStrokeColor(theme.netTape)
         ctx.setLineWidth(5.0)
         ctx.beginPath()
         for (i, p) in topPts.enumerated() {
             i == 0 ? ctx.move(to: p) : ctx.addLine(to: p)
         }
         ctx.strokePath()
+        if theme.glowStrength > 0 { ctx.restoreGState() }
 
         // Posts: center + sides
         drawPost(ctx, atX: 0)
@@ -1000,7 +637,7 @@ class PickleballScreensaverView: ScreenSaverView {
         let base = proj(wx, 0.5, 0)
         let top  = proj(wx, 0.5, netTopY(wx))
         let w: CGFloat = 0.25 * ppf(atWx: wx, atWz: 0.5)
-        ctx.setStrokeColor(CGColor(red: 0.08, green: 0.09, blue: 0.10, alpha: 1))
+        ctx.setStrokeColor(theme.netPost)
         ctx.setLineWidth(w)
         ctx.setLineCap(.round)
         line(ctx, from: base, to: top)
@@ -1010,6 +647,7 @@ class PickleballScreensaverView: ScreenSaverView {
     // MARK: - Ball shadow
 
     private func drawBallShadow(ctx: CGContext) {
+        let ball = engine.ball
         let sp = proj(ball.x, ball.z, 0)
         let fade = max(0, 1 - ball.y / 0.6)
         let s = ppf(atWx: ball.x, atWz: ball.z)
@@ -1026,12 +664,13 @@ class PickleballScreensaverView: ScreenSaverView {
     // MARK: - Trail
 
     private func drawTrail(ctx: CGContext) {
+        let trailPoints = engine.trailPoints
         let count = trailPoints.count
         for (i, t) in trailPoints.enumerated() {
             let frac = CGFloat(i) / CGFloat(count)
             let r = max(minBallPx, ballRFt * ppf(atWx: t.x, atWz: t.z)) * frac
             let p = proj(t)
-            ctx.setFillColor(CGColor(red: 1, green: 0.85, blue: 0.1, alpha: frac * 0.28))
+            ctx.setFillColor(theme.ballTrail.withAlphaComponent(frac * 0.28).cgColor)
             ctx.fillEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
         }
     }
@@ -1039,24 +678,33 @@ class PickleballScreensaverView: ScreenSaverView {
     // MARK: - Ball (yellow holed pickleball)
 
     private func drawBall(ctx: CGContext) {
+        let ball = engine.ball
         let p = proj(ball)
         let s = ppf(atWx: ball.x, atWz: ball.z)
         let r: CGFloat = max(minBallPx, ballRFt * s)
         let rim: CGFloat = max(0.6, r * 0.09)
 
+        // Under black light the ball itself glows
+        if theme.glowStrength > 0 {
+            ctx.saveGState()
+            ctx.setShadow(offset: .zero, blur: r * 1.4 * theme.glowStrength,
+                          color: theme.ballBody)
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+        }
+
         // Dark outline ring
-        ctx.setFillColor(CGColor(red: 0.05, green: 0.05, blue: 0.05, alpha: 1))
+        ctx.setFillColor(theme.ballOutline)
         ctx.fillEllipse(in: CGRect(x: p.x - r - rim, y: p.y - r - rim,
                                    width: (r + rim) * 2, height: (r + rim) * 2))
 
-        // Yellow body
-        ctx.setFillColor(CGColor(red: 0.96, green: 0.82, blue: 0.05, alpha: 1))
+        // Ball body
+        ctx.setFillColor(theme.ballBody)
         ctx.fillEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
 
         // Transparent holes — punch through with .clear so the court shows through
         ctx.saveGState()
         ctx.translateBy(x: p.x, y: p.y)
-        ctx.rotate(by: ballSpin)
+        ctx.rotate(by: engine.ballSpin)
         ctx.setBlendMode(.clear)
         let hr: CGFloat = max(0.6, r * 0.15)
         // Inner ring: 5 holes evenly spaced
@@ -1076,9 +724,14 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.restoreGState()
 
         // Fixed highlight (light direction doesn't rotate with ball)
-        ctx.setFillColor(CGColor(red: 1, green: 0.96, blue: 0.55, alpha: 0.50))
+        ctx.setFillColor(theme.ballHighlight)
         ctx.fillEllipse(in: CGRect(x: p.x - r * 0.38, y: p.y + r * 0.15,
                                    width: r * 0.76, height: r * 0.50))
+
+        if theme.glowStrength > 0 {
+            ctx.endTransparencyLayer()
+            ctx.restoreGState()
+        }
     }
 
     // MARK: - Paddle (PNG sprite at regulation size)
@@ -1108,8 +761,31 @@ class PickleballScreensaverView: ScreenSaverView {
         return nil
     }()
 
+    // Theme-tinted paddle sprite, recolored once per theme change (never per
+    // frame — four paddles draw at 60 fps)
+    private var tintedPaddleCache: CGImage?
+
+    private func paddleSprite() -> CGImage? {
+        guard let base = Self.paddleImage else { return nil }
+        guard let tint = theme.paddleTint else { return base }
+        if let cached = tintedPaddleCache { return cached }
+        guard let bctx = CGContext(data: nil, width: base.width, height: base.height,
+                                   bitsPerComponent: 8, bytesPerRow: 0,
+                                   space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return base }
+        let rect = CGRect(x: 0, y: 0, width: base.width, height: base.height)
+        bctx.draw(base, in: rect)
+        bctx.setBlendMode(.sourceAtop)   // keep the sprite's texture, wash with neon
+        bctx.setFillColor(tint.cgColor)
+        bctx.fill(rect)
+        guard let img = bctx.makeImage() else { return base }
+        tintedPaddleCache = img
+        return img
+    }
+
     private func drawPaddle(ctx: CGContext, state: PlayerState, wz: CGFloat, side: CGFloat) {
-        let wx = paddleWx(state, side: side)
+        let wx = engine.paddleWx(state)
         let hPx = paddleLenFt * ppf(atWx: wx, atWz: wz)
         let wPx = hPx * Self.paddleAspect
 
@@ -1178,8 +854,11 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.translateBy(x: pivot.x, y: pivot.y)
         ctx.rotate(by: phi)
         // The far paddle is seen from its other side, and a backhand shows the
-        // paddle's other face; either flips the sprite artwork about its long axis
-        if (side < 0) != (state.swingPhase && state.stance != side) {
+        // paddle's other face; either flips the sprite artwork about its long
+        // axis. A backhand is contact away from the forehand side, which for a
+        // lefty is the mirror of a righty's.
+        let backhand = state.swingPhase && state.stance != side * state.hand
+        if (side < 0) != backhand {
             ctx.scaleBy(x: -1, y: 1)
         }
 
@@ -1190,7 +869,7 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.setShadow(offset: CGSize(width: 0.05 * hPx, height: -0.06 * hPx),
                       blur: 0.10 * hPx,
                       color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.55))
-        if let img = Self.paddleImage {
+        if let img = paddleSprite() {
             ctx.interpolationQuality = .high
             ctx.draw(img, in: spriteRect)
         } else {
@@ -1236,7 +915,7 @@ class PickleballScreensaverView: ScreenSaverView {
                            kern: CGFloat = 0) -> [NSAttributedString.Key: Any] {
         var attrs: [NSAttributedString.Key: Any] = [
             .font: roundedFont(size, weight, monoDigits: monoDigits),
-            .foregroundColor: (color ?? NSColor.white).withAlphaComponent(alpha),
+            .foregroundColor: (color ?? theme.textPrimary).withAlphaComponent(alpha),
         ]
         if kern != 0 { attrs[.kern] = kern }
         return attrs
@@ -1248,18 +927,18 @@ class PickleballScreensaverView: ScreenSaverView {
         textAttrs(size, .semibold, alpha: alpha, color: color, kern: size * 0.14)
     }
 
-    // Translucent rounded "glass" panel background, shared by the rail cards
-    // and the floating court clock
+    // Translucent rounded "glass" panel background, shared by the rail cards,
+    // the scoreboard pill, and the floating court clock
     private func drawGlassPanel(_ ctx: CGContext, rect: CGRect, corner: CGFloat, shadowBlur: CGFloat,
-                                fillColor: CGColor = CGColor(red: 0, green: 0, blue: 0, alpha: 0.75)) {
+                                fillColor: CGColor? = nil) {
         let path = CGPath(roundedRect: rect, cornerWidth: corner, cornerHeight: corner, transform: nil)
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: 0, height: -shadowBlur * 0.3), blur: shadowBlur,
                       color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.22))
-        ctx.setFillColor(fillColor)
+        ctx.setFillColor(fillColor ?? theme.glassFill)
         ctx.addPath(path); ctx.fillPath()
         ctx.restoreGState()
-        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.16))
+        ctx.setStrokeColor(theme.glassStroke)
         ctx.setLineWidth(1)
         ctx.addPath(path); ctx.strokePath()
     }
@@ -1268,20 +947,19 @@ class PickleballScreensaverView: ScreenSaverView {
     @discardableResult
     private func drawCard(_ ctx: CGContext, _ rail: Rail, top: CGFloat, height: CGFloat) -> CGRect {
         let rect = CGRect(x: rail.x, y: top - height, width: rail.width, height: height)
-        let cardFill = CGColor(red: 0.07, green: 0.13, blue: 0.15, alpha: 0.48)
-        drawGlassPanel(ctx, rect: rect, corner: rail.corner, shadowBlur: rail.pad, fillColor: cardFill)
+        drawGlassPanel(ctx, rect: rect, corner: rail.corner, shadowBlur: rail.pad, fillColor: theme.cardFill)
         return rect.insetBy(dx: rail.pad, dy: rail.pad)
     }
 
     // Tinted SF Symbol anchored at its bottom-left corner; returns the drawn rect
     @discardableResult
     private func drawSymbol(_ name: String, at origin: CGPoint, size: CGFloat,
-                            alpha: CGFloat, color: NSColor = .white) -> CGRect {
+                            alpha: CGFloat, color: NSColor? = nil) -> CGRect {
         guard let base = NSImage(systemSymbolName: name, accessibilityDescription: nil) else {
             return CGRect(origin: origin, size: .zero)
         }
         let config = NSImage.SymbolConfiguration(pointSize: size, weight: .medium)
-            .applying(.init(paletteColors: [color.withAlphaComponent(alpha)]))
+            .applying(.init(paletteColors: [(color ?? theme.textPrimary).withAlphaComponent(alpha)]))
         let img = base.withSymbolConfiguration(config) ?? base
         let scale = img.size.height > 0 ? size / img.size.height : 1
         let rect = CGRect(x: origin.x, y: origin.y, width: img.size.width * scale, height: size)
@@ -1636,7 +1314,7 @@ class PickleballScreensaverView: ScreenSaverView {
 
         let score = NSMutableAttributedString()
         score.append(NSAttributedString(string: "NEAR  ", attributes: labelAttrs))
-        score.append(NSAttributedString(string: "\(leftScore)  –  \(rightScore)", attributes: scoreAttrs))
+        score.append(NSAttributedString(string: "\(engine.nearScore)  –  \(engine.farScore)", attributes: scoreAttrs))
         score.append(NSAttributedString(string: "  FAR", attributes: labelAttrs))
         let sz = score.size()
         let x0 = rect.midX - sz.width / 2
@@ -1644,25 +1322,29 @@ class PickleballScreensaverView: ScreenSaverView {
         // Glass pill behind the score line, matching the rail cards
         let padX = size * 0.9, padY = size * 0.42
         let pill = CGRect(x: x0 - padX, y: y - padY, width: sz.width + padX * 2, height: sz.height + padY * 2)
-        let path = CGPath(roundedRect: pill, cornerWidth: pill.height / 2, cornerHeight: pill.height / 2,
-                          transform: nil)
-        ctx.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 0.75))
-        ctx.addPath(path); ctx.fillPath()
-        ctx.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.16))
-        ctx.setLineWidth(1)
-        ctx.addPath(path); ctx.strokePath()
+        drawGlassPanel(ctx, rect: pill, corner: pill.height / 2, shadowBlur: 0)
 
         score.draw(at: NSPoint(x: x0, y: y))
 
-        // Serve dot (ball-yellow) beside the serving side
+        // Serve dot (ball-yellow) beside the serving side; doubles adds the
+        // server number (the third number of the real 0-0-2 call)
         let r = size * 0.16
-        let dotX = leftServing ? x0 - r * 3 : x0 + sz.width + r
+        let nearServing = engine.nearServing
+        let dotX = nearServing ? x0 - r * 3 : x0 + sz.width + r
         ctx.setFillColor(accentYellow.withAlphaComponent(0.85).cgColor)
         ctx.fillEllipse(in: CGRect(x: dotX, y: y + sz.height * 0.38 - r, width: r * 2, height: r * 2))
+        if engine.format == .doubles {
+            let sn = NSAttributedString(string: "\(engine.serverNumber)",
+                                        attributes: textAttrs(size * 0.52, .bold, alpha: 0.70,
+                                                              color: accentYellow, monoDigits: true))
+            let snSz = sn.size()
+            let snX = nearServing ? dotX - snSz.width - r : dotX + r * 2 + r
+            sn.draw(at: NSPoint(x: snX, y: y + sz.height * 0.38 - snSz.height / 2))
+        }
 
         // Games tally above the pill once a game has been won
-        if leftGames + rightGames > 0 {
-            let games = NSAttributedString(string: "GAMES \(leftGames) – \(rightGames)",
+        if engine.nearGames + engine.farGames > 0 {
+            let games = NSAttributedString(string: "GAMES \(engine.nearGames) – \(engine.farGames)",
                                            attributes: textAttrs(size * 0.45, .semibold, alpha: 0.40,
                                                                  kern: size * 0.04))
             let gsz = games.size()
@@ -1670,8 +1352,8 @@ class PickleballScreensaverView: ScreenSaverView {
         }
 
         // Brief GAME banner when a game is won
-        if gameBannerTimer > 0 {
-            let pulse = 0.35 + 0.45 * abs(sin(gameBannerTimer * .pi * 1.5))
+        if engine.gameBannerTimer > 0 {
+            let pulse = 0.35 + 0.45 * abs(sin(engine.gameBannerTimer * .pi * 1.5))
             let banner = NSAttributedString(string: "GAME",
                                             attributes: textAttrs(size * 1.8, .bold, alpha: pulse,
                                                                   color: accentYellow))
