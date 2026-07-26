@@ -52,9 +52,9 @@ jobs:
           echo "$APPLE_CERT_APPLICATION_P12" | base64 --decode > "$RUNNER_TEMP/application.p12"
           echo "$APPLE_CERT_INSTALLER_P12"   | base64 --decode > "$RUNNER_TEMP/installer.p12"
           security import "$RUNNER_TEMP/application.p12" -k "$KEYCHAIN" \
-            -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign
+            -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign -A
           security import "$RUNNER_TEMP/installer.p12" -k "$KEYCHAIN" \
-            -P "$APPLE_CERT_PASSWORD" -T /usr/bin/productsign -T /usr/bin/pkgbuild
+            -P "$APPLE_CERT_PASSWORD" -T /usr/bin/productsign -T /usr/bin/pkgbuild -A
           rm -f "$RUNNER_TEMP/application.p12" "$RUNNER_TEMP/installer.p12"
           security set-key-partition-list -S apple-tool:,apple: -s \
             -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
@@ -65,8 +65,8 @@ jobs:
           APPLE_SIGN_ID: ${{ secrets.APPLE_SIGN_ID }}
           APPLE_INSTALLER_SIGN_ID: ${{ secrets.APPLE_INSTALLER_SIGN_ID }}
         run: |
-          make dist SIGN_ID="$APPLE_SIGN_ID"
-          make dmg SIGN_ID="$APPLE_SIGN_ID" INSTALLER_SIGN_ID="$APPLE_INSTALLER_SIGN_ID"
+          timeout 300 make dist SIGN_ID="$APPLE_SIGN_ID"
+          timeout 300 make dmg SIGN_ID="$APPLE_SIGN_ID" INSTALLER_SIGN_ID="$APPLE_INSTALLER_SIGN_ID"
 
       - name: Notarize and staple
         env:
