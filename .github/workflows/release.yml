@@ -60,6 +60,9 @@ jobs:
             -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
           security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
 
+      - name: Debug list signing identities
+        run: security find-identity -v -p codesigning "$RUNNER_TEMP/release.keychain-db"
+
       - name: Build signed zip and dmg
         env:
           APPLE_SIGN_ID: ${{ secrets.APPLE_SIGN_ID }}
