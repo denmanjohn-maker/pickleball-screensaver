@@ -65,8 +65,9 @@ jobs:
           APPLE_SIGN_ID: ${{ secrets.APPLE_SIGN_ID }}
           APPLE_INSTALLER_SIGN_ID: ${{ secrets.APPLE_INSTALLER_SIGN_ID }}
         run: |
-          timeout 300 make dist SIGN_ID="$APPLE_SIGN_ID"
-          timeout 300 make dmg SIGN_ID="$APPLE_SIGN_ID" INSTALLER_SIGN_ID="$APPLE_INSTALLER_SIGN_ID"
+          # macOS runners don't ship GNU timeout; use perl's alarm instead.
+          perl -e 'alarm shift; exec @ARGV' 300 make dist SIGN_ID="$APPLE_SIGN_ID"
+          perl -e 'alarm shift; exec @ARGV' 300 make dmg SIGN_ID="$APPLE_SIGN_ID" INSTALLER_SIGN_ID="$APPLE_INSTALLER_SIGN_ID"
 
       - name: Notarize and staple
         env:
