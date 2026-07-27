@@ -32,16 +32,33 @@
   }
   .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
   header { text-align: center; padding: 64px 0 40px; }
-  header img.logo {
-    display: block;
-    width: 100%;
-    max-width: 460px;
-    /* height: auto or the width/height attributes survive as presentational
-       hints and squash the lockup, as the hero shot once was. */
-    height: auto;
-    margin: 0 auto;
+  /* Wordmark as text rather than artwork, in the brand's own three colours
+     (sampled from the supplied logo: cyan / orange / silver). */
+  .brand {
+    font-size: clamp(1.25rem, 5vw, 1.9rem);
+    font-weight: 800;
+    letter-spacing: .06em;
+    margin-bottom: 20px;
   }
-  h1 { font-size: 2.4rem; letter-spacing: -.02em; margin: 16px 0 8px; }
+  .brand-jd { color: #3fc9e0; }
+  .brand-tech { color: #f5913a; }
+  .brand-projects { color: #e8edf1; }
+  /* Title and ball share a row and wrap together on narrow screens. */
+  .title-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(10px, 3vw, 22px);
+    flex-wrap: wrap;
+  }
+  .title-row img.ball {
+    width: clamp(74px, 17vw, 128px);
+    /* height: auto or the width/height attributes survive as presentational
+       hints and squash it, as the hero shot once was. */
+    height: auto;
+    flex: none;
+  }
+  h1 { font-size: clamp(1.7rem, 6vw, 2.4rem); letter-spacing: -.02em; margin: 0 0 8px; }
   .tagline { font-size: 1.15rem; color: var(--muted); max-width: 34em; margin: 0 auto; }
   .cta { margin: 32px 0 8px; }
   .btn {
@@ -182,8 +199,11 @@
 <div class="wrap">
 
   <header>
-    <img class="logo" src="logo.png" alt="JD Tech Projects — a robot inside a gear emblem above the JDTECHPROJECTS wordmark, beside a pickleball trailing flames" width="919" height="349">
-    <h1>Pickleball Screensaver</h1>
+    <p class="brand"><span class="brand-jd">JD</span><span class="brand-tech">TECH</span><span class="brand-projects">PROJECTS</span></p>
+    <div class="title-row">
+      <h1>Pickleball Screensaver for macOS</h1>
+      <img class="ball" src="ball.png" alt="A pickleball trailing flames" width="320" height="252">
+    </div>
     <p class="tagline">An animated pickleball rally on your Mac — with live weather, nearby tournaments, and a drill of the day.</p>
     <div class="cta">
       <a class="btn" href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest/download/PickleballScreensaver.dmg">
