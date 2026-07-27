@@ -68,6 +68,10 @@
     display: block;
     width: 100%;
     max-width: 720px;
+    /* Without this the width/height attributes below survive as presentational
+       hints and the 16:9 shot gets squashed to a square. */
+    height: auto;
+    aspect-ratio: 16 / 9;
     margin: 40px auto;
     border-radius: 14px;
     border: 1px solid var(--border);
