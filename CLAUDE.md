@@ -36,6 +36,8 @@ swiftc -sdk "$(xcrun --show-sdk-path)" -target "$(uname -m)-apple-macos14.0" \
 
 All flags map to `var` tunables on the view, forwarded to `RallyEngine`.
 
+`scripts/preview/theme-shots.sh` wraps the harness to regenerate the download page's two hero screenshots. It renders the same seed twice — once `--classic`, once `--blacklight` — and pulls the same frame index from each, so the two images are the same rally moment in both themes and line up under the page's cross-fade. macOS only (needs `swiftc` and `sips`).
+
 ## Architecture
 
 ### Screensaver — `PickleballScreensaver/`

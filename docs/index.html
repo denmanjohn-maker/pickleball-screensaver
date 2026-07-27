@@ -64,18 +64,74 @@
     color: var(--muted);
   }
   .sub a { color: var(--muted); }
-  .shot {
-    display: block;
-    width: 100%;
-    max-width: 720px;
-    /* Without this the width/height attributes below survive as presentational
-       hints and the 16:9 shot gets squashed to a square. */
-    height: auto;
+  /* Hero shot: the two themes cross-fade in place so one slot shows both. */
+  .shot { max-width: 720px; margin: 40px auto; }
+  .shot-stack {
+    position: relative;
+    /* Reserve the box at 16:9 before either JPEG decodes, so the page does not
+       shift on load and neither frame can be stretched to fill. */
     aspect-ratio: 16 / 9;
-    margin: 40px auto;
     border-radius: 14px;
     border: 1px solid var(--border);
     box-shadow: 0 0 40px rgba(64, 255, 102, .12);
+    overflow: hidden;
+    background: var(--bg);
+  }
+  .shot-img {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    /* cover, not fill: a frame whose ratio differs from 16:9 gets cropped
+       rather than distorted. */
+    object-fit: cover;
+  }
+  /* Classic sits underneath; the black-light layer fades over it and back. */
+  .shot-blacklight { opacity: 0; animation: shotFade 12s ease-in-out infinite; }
+  .shot-caption {
+    position: relative;
+    height: 1.5em;
+    margin-top: 10px;
+    text-align: center;
+    font-size: .85rem;
+    color: var(--muted);
+  }
+  .shot-caption .lbl { position: absolute; inset: 0; }
+  .lbl-classic { animation: lblFade 12s ease-in-out infinite; }
+  .lbl-blacklight { opacity: 0; animation: shotFade 12s ease-in-out infinite; }
+  /* ~4.5 s on each theme with a 1.2 s fade between. */
+  @keyframes shotFade {
+    0%, 37.5%    { opacity: 0; }
+    47.5%, 87.5% { opacity: 1; }
+    97.5%, 100%  { opacity: 0; }
+  }
+  @keyframes lblFade {
+    0%, 37.5%    { opacity: 1; }
+    47.5%, 87.5% { opacity: 0; }
+    97.5%, 100%  { opacity: 1; }
+  }
+  /* No animation for readers who ask for none — fall back to both shots
+     stacked, which shows the same two themes without any movement. */
+  @media (prefers-reduced-motion: reduce) {
+    .shot-stack {
+      aspect-ratio: auto;
+      display: grid;
+      gap: 2px;
+    }
+    .shot-img {
+      position: static;
+      height: auto;
+      opacity: 1;
+      animation: none;
+    }
+    .shot-caption { height: auto; }
+    .shot-caption .lbl {
+      position: static;
+      opacity: 1;
+      animation: none;
+    }
+    .lbl-classic::after { content: " \00b7 "; }
   }
   section { margin: 56px 0; }
   h2 { font-size: 1.5rem; letter-spacing: -.01em; margin-bottom: 16px; }
@@ -139,7 +195,16 @@
     </div>
   </header>
 
-  <img class="shot" src="screenshot.jpg" alt="The screensaver in its black-light theme: a neon-outlined pickleball court mid-rally in doubles, with weather, tournaments, and drill-of-the-day widget cards, a scoreboard, and the clock" width="1280" height="720">
+  <figure class="shot">
+    <div class="shot-stack">
+      <img class="shot-img shot-classic" src="screenshot-classic.jpg" alt="The screensaver in its classic theme: a blue and green pickleball court mid-rally, with weather, tournaments, and drill-of-the-day widget cards, a scoreboard, and the clock" width="1280" height="720">
+      <img class="shot-img shot-blacklight" src="screenshot.jpg" alt="The same screensaver in its black-light theme: the court outlined in neon green and pink on pure black" width="1280" height="720">
+    </div>
+    <figcaption class="shot-caption">
+      <span class="lbl lbl-classic">Classic theme</span>
+      <span class="lbl lbl-blacklight">Black-light theme</span>
+    </figcaption>
+  </figure>
 
   <section>
     <h2>What it does</h2>
