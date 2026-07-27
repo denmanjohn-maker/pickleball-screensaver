@@ -77,13 +77,13 @@ jobs:
         run: |
           VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" PickleballScreensaver/Info.plist)
 
-          # `notarytool submit --wait` has been observed to hang indefinitely
-          # mid-poll even after Apple has already finished processing (seen
-          # twice: the job showed "Accepted" server-side while --wait sat at
-          # "In Progress" for 30+ min). Submit without --wait to get the job
-          # id, then poll via `wait` ourselves with a bounded timeout per
-          # attempt and a few retries, so a stalled poll fails fast and
-          # tries again instead of hanging the whole workflow.
+          # Apple's notary service has taken 20-30+ min to process
+          # submissions from this (freshly re-issued) cert - confirmed via
+          # `notarytool history` that earlier "stuck" submissions did
+          # eventually reach Accepted. `submit --wait` has no way to bound
+          # a single invocation, so submit separately and poll via `wait`
+          # ourselves in bounded chunks; this keeps the job from running
+          # indefinitely while still tolerating genuinely slow processing.
           notarize() {
             local file="$1"
             local id
@@ -93,8 +93,8 @@ jobs:
               | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
             echo "Submitted $file as $id"
             local attempt
-            for attempt in $(seq 1 8); do
-              if perl -e 'alarm shift; exec @ARGV' 120 \
+            for attempt in $(seq 1 20); do
+              if perl -e 'alarm shift; exec @ARGV' 150 \
                 xcrun notarytool wait "$id" \
                 --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
                 --password "$APPLE_APP_PASSWORD"; then
