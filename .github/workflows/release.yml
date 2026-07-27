@@ -77,19 +77,44 @@ jobs:
         run: |
           VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" PickleballScreensaver/Info.plist)
 
+          # `notarytool submit --wait` has been observed to hang indefinitely
+          # mid-poll even after Apple has already finished processing (seen
+          # twice: the job showed "Accepted" server-side while --wait sat at
+          # "In Progress" for 30+ min). Submit without --wait to get the job
+          # id, then poll via `wait` ourselves with a bounded timeout per
+          # attempt and a few retries, so a stalled poll fails fast and
+          # tries again instead of hanging the whole workflow.
+          notarize() {
+            local file="$1"
+            local id
+            id=$(xcrun notarytool submit "$file" \
+              --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_PASSWORD" --output-format json \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+            echo "Submitted $file as $id"
+            local attempt
+            for attempt in $(seq 1 8); do
+              if perl -e 'alarm shift; exec @ARGV' 120 \
+                xcrun notarytool wait "$id" \
+                --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+                --password "$APPLE_APP_PASSWORD"; then
+                return 0
+              fi
+              echo "notarytool wait stalled or failed on attempt $attempt, retrying..."
+            done
+            echo "::error::Gave up waiting for notarization of $file after repeated stalls"
+            return 1
+          }
+
           # Notarize the zipped .saver, then staple the bundle and re-zip so
           # the ticket ships inside the archive and verifies offline.
-          xcrun notarytool submit "PickleballScreensaver-$VERSION.zip" \
-            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_PASSWORD" --wait
+          notarize "PickleballScreensaver-$VERSION.zip"
           xcrun stapler staple PickleballScreensaver.saver
           rm "PickleballScreensaver-$VERSION.zip"
           ditto -c -k --keepParent PickleballScreensaver.saver "PickleballScreensaver-$VERSION.zip"
 
           # Notarize the dmg (covers the nested pkg and saver) and staple it.
-          xcrun notarytool submit "PickleballScreensaver-$VERSION.dmg" \
-            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_PASSWORD" --wait
+          notarize "PickleballScreensaver-$VERSION.dmg"
           xcrun stapler staple "PickleballScreensaver-$VERSION.dmg"
 
           xcrun stapler validate PickleballScreensaver.saver
