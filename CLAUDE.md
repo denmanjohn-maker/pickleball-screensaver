@@ -12,6 +12,8 @@ make clean              # remove the build artifact
 
 The project uses `swiftc` directly via Makefile — there is no Xcode build scheme or test suite.
 
+`assets/icon/generate.sh` regenerates `AppIcon.icns`, the System Settings thumbnails, and `docs/icon.png` (the download-page favicon) from the SVG sources in `assets/icon/`. Edit the SVGs, not the PNGs/icns — the rasterized files are derived. macOS only (swiftc + iconutil).
+
 ## Preview harness
 
 `scripts/preview/main.swift` renders the screensaver offscreen to numbered PNGs so animation changes can be reviewed without installing the saver. Build and run from the repo root (asset loading falls back to CWD-relative paths):

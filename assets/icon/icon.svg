@@ -1,0 +1,122 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <clipPath id="tile"><rect x="32" y="32" width="960" height="960" rx="218"/></clipPath>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#122630"/>
+      <stop offset="0.55" stop-color="#0b171c"/>
+      <stop offset="1" stop-color="#060d10"/>
+    </linearGradient>
+    <radialGradient id="bgGlow" cx="0.42" cy="0.62" r="0.75">
+      <stop offset="0" stop-color="#1a3a38" stop-opacity="0.85"/>
+      <stop offset="0.6" stop-color="#122a2a" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#0b171c" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="fireGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ff9a2a" stop-opacity="0.5"/>
+      <stop offset="0.5" stop-color="#ff7a1a" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#ff6a00" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="flameOuter" x1="0.2" y1="1" x2="0.8" y2="0">
+      <stop offset="0" stop-color="#c93408"/>
+      <stop offset="0.45" stop-color="#f26514"/>
+      <stop offset="1" stop-color="#fb8c1e"/>
+    </linearGradient>
+    <linearGradient id="flameMid" x1="0.2" y1="1" x2="0.8" y2="0">
+      <stop offset="0" stop-color="#f7871a"/>
+      <stop offset="0.6" stop-color="#fdae2a"/>
+      <stop offset="1" stop-color="#ffd23f"/>
+    </linearGradient>
+    <linearGradient id="flameCore" x1="0.2" y1="1" x2="0.8" y2="0">
+      <stop offset="0" stop-color="#ffd23f"/>
+      <stop offset="1" stop-color="#fff3b0"/>
+    </linearGradient>
+    <radialGradient id="ballBody" cx="0.38" cy="0.34" r="0.85">
+      <stop offset="0" stop-color="#ffd75e"/>
+      <stop offset="0.45" stop-color="#ffaf2e"/>
+      <stop offset="0.8" stop-color="#f07f18"/>
+      <stop offset="1" stop-color="#d95d0e"/>
+    </radialGradient>
+  </defs>
+
+  <g clip-path="url(#tile)">
+    <rect x="32" y="32" width="960" height="960" fill="url(#bg)"/>
+    <rect x="32" y="32" width="960" height="960" fill="url(#bgGlow)"/>
+
+    <!-- warm glow behind fireball -->
+    <ellipse cx="500" cy="520" rx="500" ry="470" fill="url(#fireGlow)"/>
+
+    <!-- flame: outer layer (tongues fan from up to right) -->
+    <path fill="url(#flameOuter)" d="
+      M230 470
+      C 240 360 280 250 340 180
+      C 352 274 380 310 430 330
+      C 450 240 505 145 575 85
+      C 596 195 622 242 645 280
+      C 705 235 800 195 885 170
+      C 812 262 770 350 740 430
+      C 792 420 830 415 858 430
+      C 780 520 700 570 620 600
+      L 380 700
+      Z"/>
+
+    <!-- flame: mid layer -->
+    <path fill="url(#flameMid)" d="
+      M300 500
+      C 306 420 335 330 385 275
+      C 395 345 415 375 452 392
+      C 468 322 510 250 565 205
+      C 580 288 600 325 620 355
+      C 668 322 730 295 790 280
+      C 738 348 706 412 684 470
+      C 630 520 570 550 520 565
+      L 380 660
+      Z"/>
+
+    <!-- flame: hot core -->
+    <path fill="url(#flameCore)" d="
+      M370 520
+      C 378 462 400 400 440 360
+      C 448 412 462 436 490 450
+      C 505 398 535 345 578 310
+      C 588 372 602 400 618 424
+      C 575 465 535 490 495 505
+      L 395 600
+      Z"/>
+
+    <!-- ball rim to separate from flame -->
+    <circle cx="420" cy="600" r="252" fill="#7a2d08"/>
+    <!-- pickleball -->
+    <circle cx="420" cy="600" r="238" fill="url(#ballBody)"/>
+    <!-- specular -->
+    <ellipse cx="336" cy="498" rx="104" ry="72" fill="#ffe9a8" opacity="0.32"/>
+
+    <!-- holes -->
+    <g fill="#8a3a0a">
+      <circle cx="420" cy="600" r="46"/>
+      <circle cx="300" cy="560" r="38"/>
+      <circle cx="536" cy="556" r="40"/>
+      <circle cx="360" cy="712" r="40"/>
+      <circle cx="500" cy="700" r="38"/>
+      <circle cx="430" cy="472" r="38"/>
+      <circle cx="298" cy="676" r="32"/>
+      <circle cx="552" cy="666" r="30"/>
+      <circle cx="316" cy="458" r="28"/>
+      <circle cx="544" cy="452" r="26"/>
+      <circle cx="430" cy="796" r="28"/>
+    </g>
+    <!-- hole inner shading -->
+    <g fill="#5f2405" opacity="0.75">
+      <circle cx="426" cy="608" r="34"/>
+      <circle cx="306" cy="567" r="28"/>
+      <circle cx="541" cy="563" r="29"/>
+      <circle cx="366" cy="719" r="29"/>
+      <circle cx="505" cy="707" r="27"/>
+      <circle cx="435" cy="479" r="27"/>
+      <circle cx="303" cy="682" r="23"/>
+      <circle cx="556" cy="672" r="21"/>
+      <circle cx="320" cy="464" r="20"/>
+      <circle cx="548" cy="457" r="18"/>
+      <circle cx="434" cy="802" r="20"/>
+    </g>
+  </g>
+</svg>
