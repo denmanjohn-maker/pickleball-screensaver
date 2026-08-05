@@ -1,125 +1,350 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pickleball Screensaver for macOS</title>
-<meta name="description" content="A macOS screensaver with an animated pickleball rally, live weather, nearby tournaments, and a drill of the day. Free download.">
-<link rel="icon" type="image/png" href="icon.png">
-<meta property="og:title" content="Pickleball Screensaver for macOS">
-<meta property="og:description" content="An animated pickleball rally on your Mac — with live weather, nearby tournaments, and a drill of the day.">
+<title>Pickleball Screensaver — Animated macOS Screensaver</title>
+<meta
+  name="description"
+  content="A native macOS pickleball screensaver with an animated rally, live weather, nearby tournaments, and a drill of the day."
+>
+<meta name="theme-color" content="#07131a">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Pickleball Screensaver — Animated macOS Screensaver">
+<meta
+  property="og:description"
+  content="An animated pickleball rally for your Mac, plus weather, tournaments, and a drill of the day."
+>
+<meta property="og:url" content="https://denmanjohn-maker.github.io/pickleball-screensaver/">
 <meta property="og:image" content="https://denmanjohn-maker.github.io/pickleball-screensaver/screenshot.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="icon.png">
 <style>
-  /* Blacklight palette, mirroring Theme.blacklight in PickleballScreensaver/Theme.swift */
   :root {
-    color-scheme: dark;
-    --bg: #000000;
-    --card: #0a0410;
-    --text: #f2f6f3;
-    --muted: #8fa396;
-    --accent: #40ff66;
-    --accent-hover: #ff4dc7;
-    --border: #1d3324;
-    --code-bg: #0e1a12;
+    --bg: #07131a;
+    --bg-raised: #0d1d26;
+    --bg-card: #112530;
+    --border: #1f3c48;
+    --text: #e5f2f5;
+    --text-dim: #9db7bf;
+    --cyan: #57d0df;
+    --cyan-soft: #9beaf3;
+    --lime: #b9ff7b;
+    --ink: #061015;
   }
-  * { box-sizing: border-box; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background: var(--bg);
+    background:
+      radial-gradient(ellipse 60% 50% at 50% 0%, rgba(87, 208, 223, 0.12), transparent 70%),
+      linear-gradient(180deg, #07131a 0%, #081118 100%);
     color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
-  header { text-align: center; padding: 64px 0 40px; }
-  /* Wordmark as text rather than artwork, in the brand's own three colours
-     (sampled from the supplied logo: cyan / orange / silver). */
-  .brand {
-    font-size: clamp(1.25rem, 5vw, 1.9rem);
-    font-weight: 800;
-    letter-spacing: .06em;
-    margin-bottom: 20px;
-  }
-  .brand-jd { color: #3fc9e0; }
-  .brand-tech { color: #f5913a; }
-  .brand-projects { color: #e8edf1; }
-  /* Title and ball share a row and wrap together on narrow screens. */
-  .title-row {
+  a { color: inherit; }
+  .page { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  .topnav {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: clamp(10px, 3vw, 22px);
+    justify-content: space-between;
+    gap: 20px;
+    padding: 24px 0 12px;
+  }
+  .nav-brand {
+    text-decoration: none;
+    color: var(--cyan-soft);
+    font-size: 0.9rem;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+  }
+  .nav-links {
+    display: flex;
+    gap: 18px;
     flex-wrap: wrap;
   }
-  .title-row img.ball {
-    width: clamp(74px, 17vw, 128px);
-    /* height: auto or the width/height attributes survive as presentational
-       hints and squash it, as the hero shot once was. */
-    height: auto;
-    flex: none;
+  .nav-links a {
+    text-decoration: none;
+    color: var(--text-dim);
+    font-size: 0.94rem;
   }
-  h1 { font-size: clamp(1.7rem, 6vw, 2.4rem); letter-spacing: -.02em; margin: 0 0 8px; }
-  .tagline { font-size: 1.15rem; color: var(--muted); max-width: 34em; margin: 0 auto; }
-  .cta { margin: 32px 0 8px; }
+  .nav-links a:hover,
+  .nav-brand:hover { color: var(--text); }
+
+  header.hero {
+    padding: 56px 0 52px;
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+    gap: 36px;
+    align-items: center;
+  }
+  .eyebrow {
+    color: var(--cyan);
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  h1 {
+    font-size: clamp(2.2rem, 6vw, 3.6rem);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    margin-bottom: 14px;
+  }
+  .tagline {
+    font-size: clamp(1.05rem, 2.3vw, 1.28rem);
+    color: var(--text-dim);
+    max-width: 34rem;
+    margin-bottom: 24px;
+  }
+  .badges {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 28px;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg-raised);
+    color: var(--text-dim);
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
+  .badge .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--lime);
+    box-shadow: 0 0 16px rgba(185, 255, 123, 0.45);
+  }
+  .cta-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
   .btn {
     display: inline-block;
-    background: var(--accent);
-    color: #000;
-    font-size: 1.1rem;
-    font-weight: 700;
-    padding: 14px 32px;
-    border-radius: 12px;
     text-decoration: none;
-    box-shadow: 0 0 24px rgba(64, 255, 102, .35);
-    transition: background .15s ease, box-shadow .15s ease;
+    font-weight: 700;
+    font-size: 0.98rem;
+    padding: 13px 24px;
+    border-radius: 14px;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
   }
-  .btn:hover {
-    background: var(--accent-hover);
-    box-shadow: 0 0 28px rgba(255, 77, 199, .45);
+  .btn:hover { transform: translateY(-1px); }
+  .btn-primary {
+    background: linear-gradient(180deg, var(--lime), #95f254);
+    color: #0c1608;
+    box-shadow: 0 10px 30px rgba(149, 242, 84, 0.18);
   }
-  .sub {
+  .btn-secondary {
+    border: 1px solid var(--border);
+    background: rgba(17, 37, 48, 0.75);
+    color: var(--cyan-soft);
+  }
+  .hero-note {
     margin-top: 12px;
-    font-size: .9rem;
-    color: var(--muted);
+    color: var(--text-dim);
+    font-size: 0.92rem;
   }
-  .sub a { color: var(--muted); }
-  /* Hero shot: the two themes cross-fade in place so one slot shows both. */
-  .shot { max-width: 720px; margin: 40px auto; }
+  .hero-note code {
+    background: rgba(6, 16, 21, 0.7);
+    border: 1px solid rgba(31, 60, 72, 0.8);
+    border-radius: 6px;
+    padding: 2px 6px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.88em;
+  }
+  .hero-art {
+    background: linear-gradient(180deg, rgba(17, 37, 48, 0.95), rgba(9, 19, 25, 0.95));
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 28px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+  }
+  .art-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .app-icon {
+    width: 92px;
+    height: 92px;
+    border-radius: 20px;
+    border: 1px solid rgba(87, 208, 223, 0.25);
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.32);
+  }
+  .ball {
+    width: min(120px, 34%);
+    height: auto;
+  }
+  .art-copy {
+    color: var(--text-dim);
+    font-size: 0.95rem;
+  }
+  .art-copy strong {
+    display: block;
+    color: var(--text);
+    font-size: 1.08rem;
+    margin-bottom: 6px;
+  }
+
+  section { padding: 64px 0; }
+  .section-kicker {
+    color: var(--cyan);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  h2 {
+    font-size: clamp(1.55rem, 4vw, 2.05rem);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    margin-bottom: 28px;
+  }
+
+  .mission {
+    background: linear-gradient(180deg, rgba(11, 25, 32, 0.85), rgba(13, 29, 38, 0.85));
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 28px;
+    color: var(--text-dim);
+    font-size: 1.04rem;
+  }
+
+  .feature-grid,
+  .step-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 18px;
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 24px;
+    transition: transform 0.18s ease, border-color 0.18s ease;
+  }
+  .card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(87, 208, 223, 0.38);
+  }
+  .card .icon {
+    width: 48px;
+    height: 48px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 14px;
+    background: rgba(87, 208, 223, 0.1);
+    border: 1px solid rgba(87, 208, 223, 0.22);
+    margin-bottom: 14px;
+    font-size: 1.35rem;
+  }
+  .card h3 {
+    font-size: 1.05rem;
+    margin-bottom: 8px;
+  }
+  .card p {
+    color: var(--text-dim);
+    font-size: 0.95rem;
+  }
+
+  .shot-shell {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    padding: 22px;
+  }
   .shot-stack {
     position: relative;
-    /* Reserve the box at 16:9 before either JPEG decodes, so the page does not
-       shift on load and neither frame can be stretched to fill. */
     aspect-ratio: 16 / 9;
-    border-radius: 14px;
-    border: 1px solid var(--border);
-    box-shadow: 0 0 40px rgba(64, 255, 102, .12);
+    border-radius: 16px;
     overflow: hidden;
-    background: var(--bg);
+    border: 1px solid var(--border);
+    background: #050d12;
   }
   .shot-img {
     position: absolute;
     inset: 0;
-    display: block;
     width: 100%;
     height: 100%;
-    /* cover, not fill: a frame whose ratio differs from 16:9 gets cropped
-       rather than distorted. */
     object-fit: cover;
   }
-  /* Classic sits underneath; the black-light layer fades over it and back. */
   .shot-blacklight { opacity: 0; animation: shotFade 12s ease-in-out infinite; }
   .shot-caption {
     position: relative;
     height: 1.5em;
-    margin-top: 10px;
+    margin-top: 12px;
     text-align: center;
-    font-size: .85rem;
-    color: var(--muted);
+    font-size: 0.86rem;
+    color: var(--text-dim);
   }
   .shot-caption .lbl { position: absolute; inset: 0; }
   .lbl-classic { animation: lblFade 12s ease-in-out infinite; }
   .lbl-blacklight { opacity: 0; animation: shotFade 12s ease-in-out infinite; }
-  /* ~4.5 s on each theme with a 1.2 s fade between. */
+
+  .step {
+    background: transparent;
+    border-left: 2px solid var(--border);
+    padding: 4px 0 4px 18px;
+  }
+  .step strong {
+    display: block;
+    color: var(--cyan-soft);
+    font-size: 0.82rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .step h3 {
+    font-size: 1.02rem;
+    margin-bottom: 6px;
+  }
+  .step p {
+    color: var(--text-dim);
+    font-size: 0.94rem;
+  }
+
+  .cta {
+    text-align: center;
+    background:
+      radial-gradient(ellipse 70% 90% at 50% -20%, rgba(87, 208, 223, 0.08), transparent 70%),
+      var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 56px 28px;
+  }
+  .cta p {
+    color: var(--text-dim);
+    max-width: 36rem;
+    margin: 0 auto 24px;
+  }
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 34px 0 46px;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.87rem;
+  }
+  footer a {
+    color: var(--cyan-soft);
+    text-decoration: none;
+  }
+  footer a:hover { text-decoration: underline; }
+
   @keyframes shotFade {
     0%, 37.5%    { opacity: 0; }
     47.5%, 87.5% { opacity: 1; }
@@ -130,9 +355,8 @@
     47.5%, 87.5% { opacity: 0; }
     97.5%, 100%  { opacity: 1; }
   }
-  /* No animation for readers who ask for none — fall back to both shots
-     stacked, which shows the same two themes without any movement. */
   @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
     .shot-stack {
       aspect-ratio: auto;
       display: grid;
@@ -150,126 +374,194 @@
       opacity: 1;
       animation: none;
     }
-    .lbl-classic::after { content: " \00b7 "; }
+    .lbl-classic::after { content: " · "; }
   }
-  section { margin: 56px 0; }
-  h2 { font-size: 1.5rem; letter-spacing: -.01em; margin-bottom: 16px; }
-  ul.features { list-style: none; padding: 0; display: grid; gap: 12px; }
-  @media (min-width: 640px) { ul.features { grid-template-columns: 1fr 1fr; } }
-  ul.features li {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 14px 18px;
+  @media (max-width: 860px) {
+    header.hero { grid-template-columns: 1fr; }
+    .hero-art { order: -1; }
   }
-  ul.features li strong { display: block; margin-bottom: 2px; }
-  ul.features li span { color: var(--muted); font-size: .95rem; }
-  ol.steps { padding-left: 1.3em; display: grid; gap: 8px; }
-  ol.steps li::marker { color: var(--accent); font-weight: 700; }
-  .note {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-left: 4px solid var(--accent);
-    border-radius: 10px;
-    padding: 14px 18px;
-    color: var(--muted);
-    font-size: .95rem;
-    margin-top: 20px;
+  @media (max-width: 560px) {
+    .topnav {
+      flex-direction: column;
+      align-items: flex-start;
+      padding-top: 18px;
+    }
+    .cta-row { flex-direction: column; align-items: stretch; }
+    .btn { text-align: center; }
   }
-  .note strong { color: var(--text); }
-  code {
-    background: var(--code-bg);
-    border-radius: 6px;
-    padding: 2px 6px;
-    font-size: .9em;
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  }
-  footer {
-    border-top: 1px solid var(--border);
-    margin-top: 72px;
-    padding: 28px 0 48px;
-    text-align: center;
-    color: var(--muted);
-    font-size: .9rem;
-  }
-  footer a { color: var(--muted); }
 </style>
 </head>
 <body>
-<div class="wrap">
-
-  <header>
-    <p class="brand"><span class="brand-jd">JD</span><span class="brand-tech">TECH</span><span class="brand-projects">PROJECTS</span></p>
-    <div class="title-row">
-      <h1>Pickleball Screensaver for macOS</h1>
-      <img class="ball" src="ball.png" alt="A pickleball trailing flames" width="320" height="252">
+<div class="page">
+  <nav class="topnav" aria-label="Site">
+    <a class="nav-brand" href="index.html">PICKLEBALL SCREENSAVER</a>
+    <div class="nav-links">
+      <a href="https://github.com/denmanjohn-maker/pickleball-screensaver">GitHub</a>
+      <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases">Releases</a>
+      <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/issues">Support</a>
     </div>
-    <p class="tagline">An animated pickleball rally on your Mac — with live weather, nearby tournaments, and a drill of the day.</p>
-    <div class="cta">
-      <a class="btn" href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest/download/PickleballScreensaver.dmg">
-        &#8595;&nbsp; Download for macOS
-      </a>
-      <p class="sub">
-        <span id="version"></span>Free &amp; open source · macOS 14+ · Apple Silicon &amp; Intel<br>
-        Prefer the raw <code>.saver</code>? <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest/download/PickleballScreensaver.zip">Download the zip</a>
-        · <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases">All releases</a>
+  </nav>
+
+  <header class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">macOS screensaver</p>
+      <h1>Pickleball on your Mac. Widgets included.</h1>
+      <p class="tagline">
+        A native screensaver with an animated rally, live weather, nearby
+        tournaments, and a drill of the day — signed, notarized, and ready to
+        install.
       </p>
+      <div class="badges">
+        <span class="badge"><span class="dot"></span>macOS 14+</span>
+        <span class="badge"><span class="dot"></span>Apple Silicon &amp; Intel</span>
+        <span class="badge"><span class="dot"></span>Signed &amp; notarized</span>
+      </div>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest/download/PickleballScreensaver.dmg">
+          Download for macOS
+        </a>
+        <a class="btn btn-secondary" href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest/download/PickleballScreensaver.zip">
+          Download zip
+        </a>
+      </div>
+      <p class="hero-note">
+        <span id="version"></span>Free &amp; open source · Prefer the raw
+        <code>.saver</code>? Grab the zip.
+      </p>
+    </div>
+
+    <div class="hero-art">
+      <div class="art-row">
+        <img class="app-icon" src="icon.png" alt="Pickleball Screensaver app icon">
+        <img class="ball" src="ball.png" alt="A pickleball trailing flames">
+      </div>
+      <div class="art-copy">
+        <strong>Built for actual pickleball degenerates.</strong>
+        Classic or black-light court. Singles or doubles. Weather, tournaments,
+        drills, and a live scoreboard, all rendered natively with CoreGraphics.
+      </div>
     </div>
   </header>
 
-  <figure class="shot">
-    <div class="shot-stack">
-      <img class="shot-img shot-classic" src="screenshot-classic.jpg" alt="The screensaver in its classic theme: a blue and green pickleball court mid-rally, with weather, tournaments, and drill-of-the-day widget cards, a scoreboard, and the clock" width="1280" height="720">
-      <img class="shot-img shot-blacklight" src="screenshot.jpg" alt="The same screensaver in its black-light theme: the court outlined in neon green and pink on pure black" width="1280" height="720">
+  <section aria-label="Mission">
+    <div class="mission">
+      No static wallpaper pretending to be a screensaver. This one runs a real
+      rally, rotates useful court-side widgets, and still stays lightweight
+      enough to feel native on your Mac.
     </div>
-    <figcaption class="shot-caption">
-      <span class="lbl lbl-classic">Classic theme</span>
-      <span class="lbl lbl-blacklight">Black-light theme</span>
-    </figcaption>
-  </figure>
+  </section>
 
-  <section>
-    <h2>What it does</h2>
-    <ul class="features">
-      <li><strong>Animated rally</strong><span>A perspective-projected court with animated players, serves, rushes, cross-court shots, and a live scoreboard.</span></li>
-      <li><strong>Singles or doubles</strong><span>Pick your format in the Options sheet. Doubles rallies use the three-number score call with both partners serving.</span></li>
-      <li><strong>Black-light theme</strong><span>Switch from the classic court to a neon-on-black look, glow and all, right from the Options sheet.</span></li>
-      <li><strong>Live weather</strong><span>Current conditions for your city with a &ldquo;good day to play?&rdquo; badge, powered by Open-Meteo. No account needed.</span></li>
-      <li><strong>Nearby tournaments</strong><span>Upcoming tournaments near your city across 25 US metros, refreshed hourly.</span></li>
-      <li><strong>Drill of the day</strong><span>One practice drill each day, filterable by DUPR tier (3.0&ndash;5.0) or all levels.</span></li>
-      <li><strong>Widget rail</strong><span>Clock, weather, tournaments, and drill cards — each one toggleable in the Options sheet.</span></li>
-      <li><strong>Native &amp; lightweight</strong><span>A universal binary drawn with CoreGraphics. Signed and notarized, so macOS installs it without warnings.</span></li>
-    </ul>
+  <section aria-labelledby="features-title">
+    <div class="section-kicker">Features</div>
+    <h2 id="features-title">Everything the screensaver shows off</h2>
+    <div class="feature-grid">
+      <article class="card">
+        <div class="icon">🏓</div>
+        <h3>Animated rally</h3>
+        <p>A perspective court with serves, cross-court exchanges, net battles, and a live scoreboard.</p>
+      </article>
+      <article class="card">
+        <div class="icon">👥</div>
+        <h3>Singles or doubles</h3>
+        <p>Choose the match format in the options sheet and let the rally logic adapt to it.</p>
+      </article>
+      <article class="card">
+        <div class="icon">🌈</div>
+        <h3>Two visual themes</h3>
+        <p>Switch between the classic court look and a neon black-light mode with glow throughout.</p>
+      </article>
+      <article class="card">
+        <div class="icon">☁️</div>
+        <h3>Live weather</h3>
+        <p>Current conditions and a “good day to play?” badge powered by Open-Meteo, no account required.</p>
+      </article>
+      <article class="card">
+        <div class="icon">📍</div>
+        <h3>Nearby tournaments</h3>
+        <p>Upcoming events near supported US metros, refreshed automatically right from the saver.</p>
+      </article>
+      <article class="card">
+        <div class="icon">🎯</div>
+        <h3>Drill of the day</h3>
+        <p>A daily practice drill filtered by skill level, so the widget rail always has something useful to show.</p>
+      </article>
+    </div>
+  </section>
+
+  <section aria-labelledby="screens-title">
+    <div class="section-kicker">Screens</div>
+    <h2 id="screens-title">Classic and black-light, same rally moment</h2>
+    <div class="shot-shell">
+      <div class="shot-stack">
+        <img class="shot-img shot-classic" src="screenshot-classic.jpg" alt="The classic screensaver theme showing a pickleball rally, a scoreboard, weather, tournaments, and drill widgets" width="1280" height="720">
+        <img class="shot-img shot-blacklight" src="screenshot.jpg" alt="The black-light screensaver theme with the same rally in neon colors on a dark background" width="1280" height="720">
+      </div>
+      <div class="shot-caption">
+        <span class="lbl lbl-classic">Classic theme</span>
+        <span class="lbl lbl-blacklight">Black-light theme</span>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="install-title">
+    <div class="section-kicker">Install</div>
+    <h2 id="install-title">From download to screen saver in a minute</h2>
+    <div class="step-grid">
+      <div class="step">
+        <strong>Step 01</strong>
+        <h3>Download the installer</h3>
+        <p>Open the DMG and launch the installer package inside.</p>
+      </div>
+      <div class="step">
+        <strong>Step 02</strong>
+        <h3>Let macOS install it</h3>
+        <p>The package installs for all users, so System Settings will ask for your password.</p>
+      </div>
+      <div class="step">
+        <strong>Step 03</strong>
+        <h3>Turn on the widgets you want</h3>
+        <p>Open System Settings → Screen Saver → PickleballScreensaver → Options… to choose format, theme, and widgets.</p>
+      </div>
+    </div>
   </section>
 
   <section>
-    <h2>Install</h2>
-    <ol class="steps">
-      <li>Download and open <code>PickleballScreensaver.dmg</code>.</li>
-      <li>Double-click the installer package inside and follow the prompts. It installs for all users, so macOS asks for your password.</li>
-      <li>Open <strong>System Settings &rarr; Screen Saver</strong> and pick <strong>PickleballScreensaver</strong>.</li>
-      <li>Click <strong>Options&hellip;</strong> to turn on weather, tournaments, and the drill of the day, and to pick singles or doubles and the black-light theme.</li>
-    </ol>
-    <p class="note">
-      <strong>Doesn't appear in the list?</strong> Quit and reopen System Settings — macOS caches the screensaver list.
-      To uninstall, delete <code>PickleballScreensaver.saver</code> from <code>/Library/Screen Savers</code>.
-    </p>
+    <div class="cta">
+      <div class="section-kicker">Get it</div>
+      <h2>Download the latest build</h2>
+      <p>
+        The latest release is signed and notarized for macOS 14+. If you want
+        the source, screenshots, or issue tracker, the GitHub repo is one click
+        away.
+      </p>
+      <div class="cta-row" style="justify-content:center;">
+        <a class="btn btn-primary" href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest/download/PickleballScreensaver.dmg">
+          Download DMG
+        </a>
+        <a class="btn btn-secondary" href="https://github.com/denmanjohn-maker/pickleball-screensaver">
+          View on GitHub
+        </a>
+      </div>
+    </div>
   </section>
 
   <footer>
     <p>
-      <a href="https://github.com/denmanjohn-maker/pickleball-screensaver">View on GitHub</a> ·
+      <a href="https://github.com/denmanjohn-maker/pickleball-screensaver">GitHub</a>
+      ·
       <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/issues">Report an issue</a>
+      ·
+      <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases">All releases</a>
     </p>
-    <p>Requires macOS 14.0 or later. Runs on Apple Silicon and Intel Macs.</p>
+    <p style="margin-top:8px;">Requires macOS 14.0 or later. Runs on Apple Silicon and Intel Macs.</p>
   </footer>
-
 </div>
+
 <script>
-  // Progressive enhancement: show the latest version next to the download
-  // button. The page works fine if this request fails.
   fetch("https://api.github.com/repos/denmanjohn-maker/pickleball-screensaver/releases/latest")
-    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (response) {
+      return response.ok ? response.json() : null;
+    })
     .then(function (release) {
       if (release && release.tag_name) {
         document.getElementById("version").textContent =
