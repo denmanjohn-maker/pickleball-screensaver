@@ -62,6 +62,7 @@ struct PlayerState {
     var targetZ: CGFloat = 0    // depth the body moves toward each frame
     var homeX: CGFloat = 0      // recovery spot between shots
     var stance: CGFloat = 1     // contact-offset side for this swing: +1 = wx+ side, -1 = wx- side
+    var committedStance: CGFloat = 0 // stroke side chosen for this incoming flight; 0 = undecided
     var swingPhase = false
     var swingT: CGFloat = 0     // normalized swing time [0, 1+recovery]
     var swingDur: CGFloat = 0.5 // seconds for this swing, windup through finish
@@ -145,6 +146,7 @@ final class RallyEngine {
     var leftyProb:        CGFloat = 1.0 / 6.0   // chance each player is left-handed
     var speedupProbPerDink: CGFloat = 0.07 // chance a dink turns into an attack (escalates)
     var lobProb:          CGFloat = 0.03   // chance a kitchen ball goes up instead
+    var runAroundProb:    CGFloat = 0.30   // chance a time-rich backhand gets run around for a forehand
 
     // Backhand contact is cross-body — a little closer in than full reach
     private let reachBackhand: CGFloat = 0.14
@@ -490,6 +492,7 @@ final class RallyEngine {
         players[chosen].reactionTimer = max(0.12, min(0.35, gauss(0.22, 0.05)))
         players[chosen].predNoise = gauss(0, 0.08)
         players[chosen].hasPrediction = false
+        players[chosen].committedStance = 0
     }
 
     // Does this player's forehand point from their body toward the center line?
@@ -625,8 +628,16 @@ final class RallyEngine {
         // the striker's index before it moves
         let idx = hitterIdx
         var p = players[idx]
-        let backhand = p.swingPhase && p.stance != fhSide(p)
-        let contact = p.x + (p.swingPhase ? p.stance : fhSide(p)) * (backhand ? reachBackhand : reach)
+        if !p.swingPhase {
+            // The arm window was compressed away (fast exchange) — pick the
+            // stance from the commitment, or the ball's actual side, rather
+            // than inheriting last stroke's
+            let fh = fhSide(p)
+            p.stance = p.committedStance != 0 ? p.committedStance
+                                              : ((ball.x - p.x) * fh > 0.04 ? fh : -fh)
+        }
+        let backhand = p.stance != fhSide(p)
+        let contact = p.x + p.stance * (backhand ? reachBackhand : reach)
         let canVolley = !mustBounce || bounceCount >= 1
         if canVolley && !winnerFlight && abs(ball.x - contact) < hitWindow && ball.y < 0.42 {
             strikeBall(&p)
@@ -1032,27 +1043,48 @@ final class RallyEngine {
                 }
             }
 
+            // Commit to a stroke side before the feet move, from the
+            // paddle-hip rule at the body's current spot: only balls clearly
+            // on the paddle side are forehands — anything at or across the
+            // body is a backhand, unless there's real time and the player
+            // elects to run around it for a forehand.
+            let fh = fhSide(p)
+            let dxRead = p.predictedX - p.x
+            if p.committedStance == 0 {
+                if dxRead * fh > 0.04 {
+                    p.committedStance = fh
+                } else if (tta - 0.5) > 0.9 && chance(runAroundProb) {
+                    p.committedStance = fh
+                } else {
+                    p.committedStance = -fh
+                }
+            } else if dxRead * p.committedStance < -0.10 && tta > 0.35 {
+                // The re-read moved the ball clearly across the body with
+                // time to adjust — switch once (wide band so read noise
+                // can't flip-flop the stance mid-approach)
+                p.committedStance = -p.committedStance
+            }
+
             // Move the feet only when the ball is outside comfortable paddle
             // reach — real players hold their spot and take what comes to
-            // them, stepping across (or running around to the forehand when
-            // there's real time) only for wider balls.
-            let fh = fhSide(p)
+            // them, stepping across only for wider balls. The target puts
+            // contact at the committed side's reach offset.
+            let s = p.committedStance == 0 ? fh : p.committedStance
+            let off: CGFloat = s == fh ? reach : reachBackhand
             let dx0 = p.predictedX - p.x
-            if abs(dx0) > reach * 1.1 {
+            if abs(dx0) > reach * 1.1 || dx0 * s < 0 {
                 let bias: CGFloat = (tta - 0.5) > 0.9 ? 1.0 : 0.3
-                p.targetX = p.predictedX - fh * reach * bias
+                p.targetX = p.predictedX - s * off * bias
             } else {
                 p.targetX = p.x
             }
 
-            // Arm the backswing when contact is a windup away. Stroke side
-            // follows the paddle-hip rule: only balls clearly on the paddle
-            // side are forehands — anything at or across the body is a
-            // backhand, exactly like a real player.
+            // Arm the backswing when contact is a windup away, on the
+            // committed side.
             if p.armed && tta > 0 && tta <= contactFrac * p.swingDur {
                 let dx = p.predictedX - p.x
-                let forehand = dx * fh > 0.04
-                p.stance = forehand ? fh : -fh
+                p.stance = p.committedStance != 0 ? p.committedStance
+                                                  : (dx * fh > 0.04 ? fh : -fh)
                 p.contactY = min(0.70, max(0.03, predictY(toZ: p.z)))
                 p.swingDur = isAtKitchen(p) ? 0.38 : 0.5
                 p.swingPhase = true
@@ -1066,7 +1098,12 @@ final class RallyEngine {
             let shift = max(-0.15, min(0.15, ball.x * 0.15))
             p.targetX = p.homeX + shift - fhSide(p) * 0.04
             p.armed = true
+            p.committedStance = 0
             if !ballComing { p.hasPrediction = false }
+        } else if !inRally {
+            // Between points: drop any leftover commitment so the ready
+            // paddle pose doesn't carry the last rally's stance
+            p.committedStance = 0
         }
 
         // Split-step: a small dip of the ready paddle during the reaction
@@ -1135,11 +1172,13 @@ final class RallyEngine {
     }
 
     // Where the paddle is drawn: at the contact offset while swinging,
-    // otherwise held ready slightly on the forehand side
+    // otherwise held ready slightly on the committed side (forehand when
+    // uncommitted), so a backhand reads as prepared during the approach
     func paddleWx(_ p: PlayerState) -> CGFloat {
         let fh = p.facing * p.hand
-        let backhand = p.swingPhase && p.stance != fh
-        return p.x + (p.swingPhase ? p.stance : fh * 0.7) * (backhand ? reachBackhand : reach)
+        let ready = p.committedStance != 0 ? p.committedStance : fh
+        let backhand = (p.swingPhase ? p.stance : ready) != fh
+        return p.x + (p.swingPhase ? p.stance : ready * 0.7) * (backhand ? reachBackhand : reach)
     }
 
     // MARK: - Swing animation

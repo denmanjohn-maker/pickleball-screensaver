@@ -34,6 +34,7 @@ swiftc -sdk "$(xcrun --show-sdk-path)" -target "$(uname -m)-apple-macos14.0" \
 - `--blacklight` — force the neon-on-black theme
 - `--force-drop` / `--force-drive` — every third shot is a drop / drive
 - `--force-speedup` / `--force-lob` / `--lefty` — force those behaviors
+- `--no-runaround` — time-rich backhands are never run around for a forehand
 - `--clean` — rallies end on winners only (no scripted errors)
 
 All flags map to `var` tunables on the view, forwarded to `RallyEngine`.

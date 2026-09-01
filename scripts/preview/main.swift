@@ -18,6 +18,7 @@
 //   --blacklight / --classic     force the theme (overrides saved settings)
 //   --force-drop / --force-drive every third shot is a drop / drive
 //   --force-speedup / --force-lob / --lefty   force those behaviors
+//   --no-runaround time-rich backhands are never run around for a forehand
 //   --clean        rallies end on winners only (no scripted errors)
 import AppKit
 
@@ -50,6 +51,7 @@ if args.contains("--doubles")       { view.setFormat(.doubles) }
 if args.contains("--lefty")         { view.leftyProb = 1.0 }
 if args.contains("--force-speedup") { view.speedupProbPerDink = 1.0 }
 if args.contains("--force-lob")     { view.lobProb = 1.0 }
+if args.contains("--no-runaround")  { view.runAroundProb = 0.0 }
 if args.contains("--blacklight")    { view.applyTheme(.blacklight) }
 if args.contains("--classic")       { view.applyTheme(.classic) }   // override a saved theme
 

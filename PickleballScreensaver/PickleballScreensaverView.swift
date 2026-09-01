@@ -51,6 +51,7 @@ class PickleballScreensaverView: ScreenSaverView {
     var leftyProb:       CGFloat { get { engine.leftyProb }       set { engine.leftyProb = newValue } }
     var speedupProbPerDink: CGFloat { get { engine.speedupProbPerDink } set { engine.speedupProbPerDink = newValue } }
     var lobProb:         CGFloat { get { engine.lobProb }         set { engine.lobProb = newValue } }
+    var runAroundProb:   CGFloat { get { engine.runAroundProb }   set { engine.runAroundProb = newValue } }
     var simStats: ((String) -> Void)? { get { engine.statsSink } set { engine.statsSink = newValue } }
     func reseed(_ seed: UInt64) { engine.reseed(seed) }
     func setFormat(_ f: GameFormat) { engine.setFormat(f) }
