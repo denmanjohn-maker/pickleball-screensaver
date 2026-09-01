@@ -634,7 +634,7 @@ final class RallyEngine {
             // than inheriting last stroke's
             let fh = fhSide(p)
             p.stance = p.committedStance != 0 ? p.committedStance
-                                              : ((ball.x - p.x) * fh >= 0 ? fh : -fh)
+                                              : ((ball.x - p.x) * fh > 0.04 ? fh : -fh)
         }
         let backhand = p.stance != fhSide(p)
         let contact = p.x + p.stance * (backhand ? reachBackhand : reach)
@@ -1100,6 +1100,10 @@ final class RallyEngine {
             p.armed = true
             p.committedStance = 0
             if !ballComing { p.hasPrediction = false }
+        } else if !inRally {
+            // Between points: drop any leftover commitment so the ready
+            // paddle pose doesn't carry the last rally's stance
+            p.committedStance = 0
         }
 
         // Split-step: a small dip of the ready paddle during the reaction
