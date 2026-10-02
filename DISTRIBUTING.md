@@ -48,6 +48,15 @@ To produce the cert values: in **Keychain Access**, select the certificate
 `security find-identity -v` (Installer). Export both certificates with the
 same password, or store them separately and adjust the workflow.
 
+The workflow checks notarization credentials before importing certificates or
+building. If Apple returns HTTP 401 ("Invalid credentials"), verify that
+`APPLE_ID` and `APPLE_TEAM_ID` match your developer account, generate a new
+app-specific password at https://account.apple.com, and update the repository's
+`APPLE_APP_PASSWORD` secret. Use an app-specific password, not your Apple ID
+login password. Apple revokes app-specific passwords when the account password
+is changed or reset. Retry the failed release after correcting the secrets;
+rebuilding or changing the signing certificates does not fix this error.
+
 The download page at
 https://denmanjohn-maker.github.io/pickleball-screensaver/ is GitHub Pages
 serving the `docs/` folder — enable it once under **Settings → Pages →

@@ -38,6 +38,23 @@ jobs:
             exit 1
           fi
 
+      - name: Validate notarization credentials
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_TEAM_ID" ] || [ -z "$APPLE_APP_PASSWORD" ]; then
+            echo "::error::Set APPLE_ID, APPLE_TEAM_ID, and APPLE_APP_PASSWORD in repository Actions secrets."
+            exit 1
+          fi
+          if ! xcrun notarytool history \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --output-format json > /dev/null; then
+            echo "::error::Apple notarization authentication failed. Verify APPLE_ID and APPLE_TEAM_ID, and replace APPLE_APP_PASSWORD with a valid app-specific password for that Apple ID at https://account.apple.com."
+            exit 1
+          fi
+
       - name: Import signing certificates
         env:
           APPLE_CERT_APPLICATION_P12: ${{ secrets.APPLE_CERT_APPLICATION_P12 }}
@@ -86,10 +103,14 @@ jobs:
           # indefinitely while still tolerating genuinely slow processing.
           notarize() {
             local file="$1"
-            local id
-            id=$(xcrun notarytool submit "$file" \
+            local id submission
+            if ! submission=$(xcrun notarytool submit "$file" \
               --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
-              --password "$APPLE_APP_PASSWORD" --output-format json \
+              --password "$APPLE_APP_PASSWORD" --output-format json); then
+              echo "::error::Notarization submission failed for $file. See the notarytool error above."
+              return 1
+            fi
+            id=$(printf '%s' "$submission" \
               | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
             echo "Submitted $file as $id"
             local attempt
