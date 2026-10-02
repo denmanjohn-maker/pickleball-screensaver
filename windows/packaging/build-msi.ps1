@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory)][string]$Payload,
     [Parameter(Mandatory)][string]$Themes,
     [Parameter(Mandatory)][string]$Output,
-    [string]$Version = '1.5.0'
+    [string]$Version = '1.6.0'
 )
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))

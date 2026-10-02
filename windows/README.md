@@ -1,7 +1,7 @@
 # Pickleball for Windows 11
 
-Independent C#/.NET **10 LTS** WPF implementation, product **1.5**
-(`Version=1.5.0`), in the same repository as the unchanged macOS screensaver.
+Independent C#/.NET **10 LTS** WPF implementation, product **1.6**
+(`Version=1.6.0`), aligned with the subsequently merged macOS version bump.
 Native **win-arm64** and **win-x64** packages are self-contained; recipients
 do not install .NET. Running the x64 package under ARM emulation is rejected.
 
@@ -127,7 +127,7 @@ On **native Windows**:
 dotnet run --project tools/Pickleball.Preview -c Release -- artifacts/ink.png 800 42 1280x720 '2026-01-01T12:00:00.0000000+00:00' ink-and-paper singles reduced
 ./packaging/test-render.ps1 -Output "$PWD/artifacts/render"
 ./packaging/build-themes.ps1 -Output "$PWD/artifacts/themes"
-./packaging/build-msi.ps1 -Rid win-arm64 -Payload "$PWD/artifacts/PickleballScreensaver-1.5.0-win-arm64" -Themes "$PWD/artifacts/themes" -Output "$PWD/artifacts/installers"
+./packaging/build-msi.ps1 -Rid win-arm64 -Payload "$PWD/artifacts/PickleballScreensaver-1.6.0-win-arm64" -Themes "$PWD/artifacts/themes" -Output "$PWD/artifacts/installers"
 ```
 
 Exporter arguments: output, frame (0..36000), uint seed, size, ISO epoch,
@@ -184,7 +184,7 @@ Windows validation uses only read permissions and artifact uploads. Its
 manual signing option is restricted to reviewed `main`. It never creates a
 release, tags or merges. Existing `.github/workflows/release.yml` remains the
 **single release owner** and macOS versionless download URLs are unchanged.
-Do **not** republish/overwrite already-triggered `v1.5`. Windows promotion
+Do **not** republish/overwrite already-triggered `v1.5` or `v1.6`. Windows promotion
 requires explicit maintainer approval after the gates below, then attachment
 through the one release-owner path; no competing Windows publisher exists.
 
@@ -213,8 +213,13 @@ SDK, PowerShell/test-process and published-process architecture checks.
 Native tests exercise the **renamed self-contained `.scr`**, real preview
 HWND/resize/parent death, settings and image export. Isolated runner MSI tests
 check no auto-selection/policy changes, repair, synthetic next-version upgrade, owned-reference removal and
-alternative/unowned-file preservation. Hosted users can be administrators:
-passing there alone does not prove standard-user/non-admin desktop acceptance.
+alternative/unowned-file preservation. GitHub-hosted Windows runners execute
+as **administrators with UAC disabled**. MSI authoring constrains installation
+to the current user; hosted tests verify the stable per-user file path and
+preservation of the tested desktop policy values, but do not assert MSI
+registration context or the absence of machine registration. This is
+**package-authoring and hosted lifecycle evidence**, not non-admin/UAC-policy
+acceptance.
 
 Before distribution, record actual **Windows 11 ARM64 and x64 desktops**:
 
