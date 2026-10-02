@@ -12,7 +12,7 @@ make test               # deterministic engine and projection regression checks
 ```
 
 The project uses `swiftc` directly via Makefile. `scripts/tests/run.sh` builds
-and runs the regression executable; pass `--engine-only` or `--camera-only`
+and runs the regression executables; pass `--engine-only`, `--camera-only`, or `--preview-only`
 for a focused check.
 
 `assets/icon/generate.sh` regenerates `AppIcon.icns`, the System Settings thumbnails, and `docs/icon.png` (the download-page favicon) from the SVG sources in `assets/icon/`. Edit the SVGs, not the PNGs/icns — the rasterized files are derived. macOS only (swiftc + iconutil).
@@ -46,8 +46,11 @@ swiftc -sdk "$(xcrun --show-sdk-path)" -target "$(uname -m)-apple-macos14.0" \
 - `--sample-every=N` — write every Nth display step (default 2 at 60 fps)
 - `--fps=N` — display cadence, 4–240 fps; the simulation always runs at 120 Hz
 
-Seeded previews disable ambient ghosts and use a fixed date for the clock and
-daily drill, making repeated screenshots reproducible. Simulation tunables
+Seeded previews disable ambient ghosts and use a fixed date, UTC time zone,
+Gregorian calendar, and `en_US_POSIX` locale for the clock and daily drill,
+making repeated screenshots reproducible across locale settings. Frame selection
+is checked against the actual integer display-step count, including fractional
+durations. Simulation tunables
 are forwarded from the view to `RallyEngine`.
 
 `scripts/preview/theme-shots.sh` wraps the harness to regenerate the download page's two hero screenshots. It renders the same seed twice — once `--classic`, once `--blacklight` — and pulls the same frame index from each, so the two images are the same rally moment in both themes and line up under the page's cross-fade. macOS only (needs `swiftc` and `sips`).

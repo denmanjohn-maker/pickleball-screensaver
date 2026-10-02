@@ -90,8 +90,26 @@ class PickleballScreensaverView: ScreenSaverView {
     private var drillLevel = "all"
 
     // Shared formatters and accent — the overlays redraw every frame
-    private let timeFmt: DateFormatter = { let f = DateFormatter(); f.dateFormat = "h:mm a"; return f }()
-    private let dayFmt: DateFormatter = { let f = DateFormatter(); f.dateFormat = "EEEE, MMMM d"; return f }()
+    private static let previewCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }()
+
+    private static func overlayFormatter(_ format: String, calendar: Calendar? = nil) -> DateFormatter {
+        let formatter = DateFormatter()
+        if let calendar {
+            formatter.locale = calendar.locale
+            formatter.calendar = calendar
+            formatter.timeZone = calendar.timeZone
+        }
+        formatter.dateFormat = format
+        return formatter
+    }
+
+    private var timeFmt = PickleballScreensaverView.overlayFormatter("h:mm a")
+    private var dayFmt = PickleballScreensaverView.overlayFormatter("EEEE, MMMM d")
     private var accentYellow: NSColor { theme.accent }
 
     // Turntable spin — a full 360° yaw of the scene every minute on the minute
@@ -103,7 +121,14 @@ class PickleballScreensaverView: ScreenSaverView {
     var previewYaw: CGFloat? {
         didSet { if (oldValue == nil) != (previewYaw == nil) { fitCache = nil } }
     }
-    var previewDate: Date?
+    var previewDate: Date? {
+        didSet {
+            guard (oldValue == nil) != (previewDate == nil) else { return }
+            let calendar: Calendar? = previewDate == nil ? nil : Self.previewCalendar
+            timeFmt = Self.overlayFormatter("h:mm a", calendar: calendar)
+            dayFmt = Self.overlayFormatter("EEEE, MMMM d", calendar: calendar)
+        }
+    }
     var ambientEnabled = true
     var rallyEvents: [RallyEvent] { engine.frameEvents }
     var ballPosition: Vec3 { engine.ball }
@@ -1364,8 +1389,9 @@ class PickleballScreensaverView: ScreenSaverView {
     // MARK: - Drill of the day card (pinned to the bottom margin)
 
     private func drawDrill(ctx: CGContext, rect: NSRect, rail: Rail, bottom: CGFloat) {
-        guard drillEnabled, let drill = PickleballDrills.drillOfTheDay(level: drillLevel,
-                                                                   date: previewDate ?? Date()) else { return }
+        guard drillEnabled, let drill = PickleballDrills.drillOfTheDay(
+            level: drillLevel, date: previewDate ?? Date(),
+            calendar: previewDate == nil ? .current : Self.previewCalendar) else { return }
 
         let kSize = overlayUnit(rect) * 0.016
         let kickerH = kSize * 1.6

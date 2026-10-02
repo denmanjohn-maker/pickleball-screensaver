@@ -56,7 +56,8 @@ make test
 
 These cover service rotations, kitchen legality, paddle contact, exact bounce
 locations, shot-speed and ending distributions, frame-rate independence,
-forced shot behaviors, and camera framing throughout a full rotation.
+forced shot behaviors, camera framing throughout a full rotation, fractional
+preview-frame bounds, and seeded screenshots across locale/calendar/time-zone settings.
 
 To install it for the current user:
 

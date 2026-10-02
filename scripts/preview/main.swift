@@ -29,6 +29,10 @@
 import AppKit
 
 let args = CommandLine.arguments
+func usageError(_ message: String) -> Never {
+    fputs("preview: \(message)\n", stderr)
+    exit(2)
+}
 func flagValue(_ name: String) -> String? {
     args.first(where: { $0.hasPrefix("--\(name)=") }).map { String($0.dropFirst(name.count + 3)) }
 }
@@ -48,6 +52,9 @@ let simOnly = args.contains("--sim-only")
 let wantStats = args.contains("--stats")
 let fps = positiveInt("fps", fallback: 60)
 guard (4...240).contains(fps) else { fatalError("--fps must be between 4 and 240") }
+guard let frames = Int(exactly: (seconds * Double(fps)).rounded(.towardZero)), frames > 0 else {
+    usageError("duration must contain at least one display step and fit an integer step count")
+}
 let sampleEvery = positiveInt("sample-every", fallback: max(1, fps / 30))
 let size = (flagValue("size") ?? "1280x720").split(separator: "x")
 guard size.count == 2, let width = Int(size[0]), let height = Int(size[1]), width > 0, height > 0 else {
@@ -55,8 +62,8 @@ guard size.count == 2, let width = Int(size[0]), let height = Int(size[1]), widt
 }
 var selectedFrame: Int?
 if let value = flagValue("frame") {
-    guard let frame = Int(value), frame >= 0, Double(frame) * Double(sampleEvery) < seconds * Double(fps) else {
-        fatalError("--frame must identify a sampled frame within the requested duration")
+    guard let frame = Int(value), frame >= 0, frame <= (frames - 1) / sampleEvery else {
+        usageError("--frame must identify a sampled frame within the requested duration")
     }
     selectedFrame = frame
 }
@@ -135,7 +142,6 @@ if !seeded && args.contains("--lefty") {
 }
 if seeded { view.ambientEnabled = false }
 
-let frames = Int(seconds * Double(fps))
 var now = startClock
 var written = 0
 let space = CGColorSpace(name: CGColorSpace.sRGB)!

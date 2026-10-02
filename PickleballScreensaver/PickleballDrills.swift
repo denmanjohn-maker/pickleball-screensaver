@@ -31,10 +31,10 @@ enum PickleballDrills {
 
     /// Deterministic daily pick: same drill all day, next one at midnight.
     /// `level` of "all" draws from the whole library; otherwise one DUPR tier.
-    static func drillOfTheDay(level: String, date: Date = Date()) -> Drill? {
+    static func drillOfTheDay(level: String, date: Date = Date(), calendar: Calendar = .current) -> Drill? {
         let pool = level == "all" ? all : all.filter { $0.level == level }
         guard !pool.isEmpty else { return nil }
-        let day = Calendar.current.ordinality(of: .day, in: .era, for: date) ?? 0
+        let day = calendar.ordinality(of: .day, in: .era, for: date) ?? 0
         return pool[day % pool.count]
     }
 }
