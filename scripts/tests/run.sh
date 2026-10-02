@@ -3,6 +3,12 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+if [[ $# == 0 || "${1:-}" == --release-only ]]; then
+  bash scripts/tests/release.sh
+  if [[ "${1:-}" == --release-only ]]; then
+    exit
+  fi
+fi
 compile() {
   swiftc -sdk "$(xcrun --show-sdk-path)" -target "$(uname -m)-apple-macos14.0" \
     -framework Cocoa -framework ScreenSaver \
