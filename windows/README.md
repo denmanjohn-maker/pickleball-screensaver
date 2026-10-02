@@ -214,9 +214,12 @@ Native tests exercise the **renamed self-contained `.scr`**, real preview
 HWND/resize/parent death, settings and image export. Isolated runner MSI tests
 check no auto-selection/policy changes, repair, synthetic next-version upgrade, owned-reference removal and
 alternative/unowned-file preservation. GitHub-hosted Windows runners execute
-as **administrators with UAC disabled**. MSI tests explicitly verify current-user
-unmanaged registration and absence of machine registration, but this is
-**per-user package-semantics proof**, not non-admin/UAC-policy acceptance.
+as **administrators with UAC disabled**. MSI authoring constrains installation
+to the current user; hosted tests verify the stable per-user file path and
+preservation of the tested desktop policy values, but do not assert MSI
+registration context or the absence of machine registration. This is
+**package-authoring and hosted lifecycle evidence**, not non-admin/UAC-policy
+acceptance.
 
 Before distribution, record actual **Windows 11 ARM64 and x64 desktops**:
 
