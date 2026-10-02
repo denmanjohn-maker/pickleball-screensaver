@@ -3,9 +3,11 @@ param(
     [Parameter(Mandatory)][string]$Payload,
     [Parameter(Mandatory)][string]$Themes,
     [Parameter(Mandatory)][string]$Output,
-    [string]$Version = '1.6.0'
+    [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version
 )
 $ErrorActionPreference = 'Stop'
+$parts = $Version.Split('.') | ForEach-Object { [int]$_ }
+if ($parts[0] -gt 255 -or $parts[1] -gt 255 -or $parts[2] -gt 65535) { throw 'Version exceeds Windows Installer limits' }
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $payloadPath = [IO.Path]::GetFullPath($Payload)
 $outputPath = [IO.Path]::GetFullPath($Output)

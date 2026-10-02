@@ -8,7 +8,12 @@ if [[ $# == 0 || "${1:-}" == --website-only ]]; then
     -framework Cocoa -framework WebKit scripts/tests/website/main.swift -o "$work/website"
   "$work/website"
   "$work/website" --mobile
+  "$work/website" --release=macos
+  "$work/website" --mobile --release=partial
+  "$work/website" --release=network-failure
+  "$work/website" --release=http-error
   "$work/website" --no-script
+  "$work/website" --mobile --no-script
   if [[ "${1:-}" == --website-only ]]; then
     exit
   fi

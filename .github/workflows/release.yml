@@ -1,6 +1,6 @@
-# Builds, signs, notarizes, and publishes the screensaver when a v* tag is
-# pushed. Run manually (workflow_dispatch) for a build-only dry run that
-# uploads the artifacts without creating a release.
+# Builds macOS and native Windows packages together when a v* tag is pushed.
+# macOS is signed/notarized; Windows is explicitly unsigned.
+# Manual runs upload artifacts only, even when a tag is selected.
 #
 # Required repository secrets (Settings → Secrets and variables → Actions);
 # see DISTRIBUTING.md § "Cutting a release" for how to create each one:
@@ -17,13 +17,24 @@ name: Release
 on:
   push:
     tags: ['v*']
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Build-only dry run (never publishes a release)'
+        type: choice
+        options: [all, windows, macos]
+        default: all
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  release:
+  macos:
+    if: github.event_name == 'push' || inputs.platform != 'windows'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -150,30 +161,109 @@ jobs:
           cp "PickleballScreensaver-$VERSION.zip" PickleballScreensaver.zip
           cp "PickleballScreensaver-$VERSION.dmg" PickleballScreensaver.dmg
 
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+      - name: Upload macOS packages
+        uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: PickleballScreensaver-macos
+          path: |
             PickleballScreensaver-*.zip
             PickleballScreensaver-*.dmg
             PickleballScreensaver.zip
             PickleballScreensaver.dmg
-          generate_release_notes: true
-          body: |
-            ### Install
+          if-no-files-found: error
+
+  windows:
+    if: github.event_name == 'push' || inputs.platform != 'macos'
+    uses: ./.github/workflows/windows-build.yml
+    with:
+      artifact-prefix: Windows-release
+      sign: false
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse to replace an existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh api "repos/$GH_REPO/releases?per_page=100" --paginate --slurp > "$RUNNER_TEMP/releases.json"
+          python3 windows/packaging/release.py check-new --tag "$RELEASE_TAG" --releases "$RUNNER_TEMP/releases.json"
+      - uses: actions/download-artifact@v4
+        with:
+          name: PickleballScreensaver-macos
+          path: windows/artifacts/downloads/macos
+      - uses: actions/download-artifact@v4
+        with:
+          name: Windows-release-themes
+          path: windows/artifacts/downloads/themes
+      - uses: actions/download-artifact@v4
+        with:
+          name: Windows-release-win-x64
+          path: windows/artifacts/downloads/win-x64
+      - uses: actions/download-artifact@v4
+        with:
+          name: Windows-release-win-arm64
+          path: windows/artifacts/downloads/win-arm64
+      - name: Validate release inventory and make Windows download aliases
+        id: assets
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 windows/packaging/release.py stage --tag "$RELEASE_TAG" \
+            --input windows/artifacts/downloads --output windows/artifacts/release \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Upload complete release as a draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          ASSET_FILES: ${{ steps.assets.outputs.files }}
+          RELEASE_NOTES: |
+            ### macOS 14+
             Download `PickleballScreensaver.dmg`, open it, and double-click the
             installer package inside. Then pick the screensaver in
-            **System Settings → Screen Saver**. Builds are signed and notarized,
-            so macOS opens them without warnings.
+            **System Settings → Screen Saver**. macOS builds are signed and notarized.
 
-            More details on the [download page](https://denmanjohn-maker.github.io/pickleball-screensaver/).
+            ### Windows 11 — unsigned
+            Choose **win-x64** for Intel/AMD PCs or **win-arm64** for ARM PCs
+            (Settings → System → About → System type). Download the matching
+            `PickleballScreensaver-win-x64.msi` or `PickleballScreensaver-win-arm64.msi`
+            for a current-user install, or the matching portable ZIP.
+            .NET is included; keep all portable files together.
+            Use **Pickleball Select (opt in)** in the Start menu to select the saver,
+            and **Pickleball settings** to configure it. Installation does not
+            automatically activate a saver, apply a theme or change security policy.
+            Classic and Black Light `.deskthemepack` downloads are optional wallpapers.
 
-      - name: Upload build artifacts (dry run)
-        if: "!startsWith(github.ref, 'refs/tags/')"
-        uses: actions/upload-artifact@v4
-        with:
-          name: PickleballScreensaver
-          path: |
-            PickleballScreensaver-*.zip
-            PickleballScreensaver-*.dmg
+            **Windows packages are unsigned.** Windows may display unknown-publisher
+            or SmartScreen warnings. Signing/reputation and final Windows 11 desktop,
+            standard-user and performance acceptance are not certified by these builds.
+            Each Windows package has a matching SHA-256 file.
+
+            Downloads and instructions: [download page](https://denmanjohn-maker.github.io/pickleball-screensaver/).
+            Acceptance details: [Windows guide](https://github.com/denmanjohn-maker/pickleball-screensaver/blob/main/windows/README.md#evidence-and-outstanding-acceptance).
+        run: |
+          printf '%s\n' "$RELEASE_NOTES" > "$RUNNER_TEMP/release-notes.md"
+          assets=()
+          while IFS= read -r file; do
+            if [[ ! -f "$file" ]]; then
+              echo "::error::Missing release asset: $file"
+              exit 1
+            fi
+            assets+=("$file")
+          done <<< "$ASSET_FILES"
+          gh release create "$RELEASE_TAG" "${assets[@]}" --draft --verify-tag \
+            --generate-notes --notes-file "$RUNNER_TEMP/release-notes.md"
+      - name: Publish the fully uploaded release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest

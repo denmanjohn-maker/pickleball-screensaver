@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pickleball Screensaver — Five Artistic Looks for Your Mac</title>
+<title>Pickleball Screensaver — Five Artistic Looks for Mac and Windows</title>
 <meta
   name="description"
-  content="Turn pickleball rallies into art with five macOS screensaver appearances, singles or doubles, gentle court motion, weather, tournaments, and daily drills."
+  content="Five artistic pickleball screensaver looks for macOS and Windows 11. Download native x64 or ARM64 Windows installers and portable ZIPs, with weather, tournaments, and daily drills."
 >
 <meta name="theme-color" content="#07131a">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Pickleball Screensaver — Five Artistic Looks for Your Mac">
+<meta property="og:title" content="Pickleball Screensaver — Five Artistic Looks for Mac and Windows">
 <meta
   property="og:description"
-  content="Living Court ripples, Ink-and-paper watercolors, and Rally Painting join Classic and Black Light. Real rallies, five looks, and useful court-side widgets."
+  content="Real rallies, five artistic looks, and court-side widgets for Mac and Windows 11. Native Windows x64 and ARM64 downloads."
 >
 <meta property="og:url" content="https://denmanjohn-maker.github.io/pickleball-screensaver/">
 <meta property="og:image" content="https://denmanjohn-maker.github.io/pickleball-screensaver/screenshot-rally-painting.jpg">
@@ -265,6 +265,26 @@
     color: var(--text-dim);
     font-size: 0.95rem;
   }
+  .download-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+    margin: 24px 0;
+  }
+  .download-grid .cta-row { margin-top: 18px; }
+  .windows-notice {
+    border-left: 3px solid var(--lime);
+    background: var(--bg-raised);
+    padding: 18px 22px;
+    margin: 24px 0;
+    color: var(--text-dim);
+  }
+  .windows-notice strong { color: var(--text); }
+  .windows-extras { margin: 24px 0; }
+  .windows-extras h3 { margin-bottom: 10px; }
+  .windows-extras p { margin-bottom: 16px; color: var(--text-dim); }
+  .windows-install { margin-top: 36px; }
+  .windows-install > h3 { margin-bottom: 20px; }
 
   .shot-shell {
     background: var(--bg-raised);
@@ -389,6 +409,7 @@
     .btn { text-align: center; }
     .shot-shell { padding: 14px; }
     .appearance-button { flex: 1 1 auto; }
+    .download-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -398,6 +419,7 @@
     <a class="nav-brand" href="index.html">PICKLEBALL SCREENSAVER</a>
     <div class="nav-links">
       <a href="#screens-title">Appearances</a>
+      <a href="#windows-downloads">Windows</a>
       <a href="https://github.com/denmanjohn-maker/pickleball-screensaver">GitHub</a>
       <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases">Releases</a>
       <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/issues">Support</a>
@@ -445,24 +467,75 @@
     </div>
   </header>
 
-  <section aria-label="Windows 11">
+  <section id="windows-downloads" aria-label="Windows 11">
     <p class="eyebrow">Windows 11</p>
-    <h2>Windows builds are here</h2>
+    <h2>Pick your Windows download</h2>
     <p class="section-intro">
-      Native ARM64 and x64 builds are part of the project, with MSI installers,
-      portable ZIPs, and Classic/Black Light desktop theme packs.
-      Check GitHub Releases for published Windows packages.
+      The same five appearances and real rallies, built natively for Windows 11.
+      Choose the architecture shown in <strong>Settings → System → About → System type</strong>:
+      x64 for Intel/AMD PCs, ARM64 for ARM PCs. Each package includes .NET — no
+      separate runtime install is needed.
     </p>
-    <div class="cta-row">
-      <a class="btn btn-secondary" href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases">
-        Download Windows builds
-      </a>
+    <p id="windows-release-status" class="hero-note" role="status">
+      Windows packages are published with new shared version releases. These
+      links open GitHub Releases until matching downloads are confirmed.
+    </p>
+    <div class="download-grid">
+      <article class="card">
+        <h3>Windows x64</h3>
+        <p>For Windows 11 on Intel and AMD processors.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" data-release-asset="PickleballScreensaver-win-x64.msi" href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases">Download x64 MSI</a>
+          <a class="btn btn-secondary" data-release-asset="PickleballScreensaver-win-x64.zip" href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases">Portable x64 ZIP</a>
+        </div>
+      </article>
+      <article class="card">
+        <h3>Windows ARM64</h3>
+        <p>For Windows 11 on ARM processors, including Snapdragon PCs. Use this native build, not x64 emulation.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" data-release-asset="PickleballScreensaver-win-arm64.msi" href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases">Download ARM64 MSI</a>
+          <a class="btn btn-secondary" data-release-asset="PickleballScreensaver-win-arm64.zip" href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases">Portable ARM64 ZIP</a>
+        </div>
+      </article>
     </div>
-    <p class="hero-note">
-      Windows builds are validation candidates, pending final desktop testing and signing approval.
-      See the <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/blob/main/windows/README.md">Windows build and acceptance guide</a>
-      before installing.
-    </p>
+    <div class="windows-notice">
+      <strong>Windows downloads are unsigned.</strong> Windows may show an
+      unknown-publisher or SmartScreen warning. These builds do not certify
+      signing/reputation or final Windows 11 desktop, standard-user and
+      performance acceptance. Read the
+      <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/blob/main/windows/README.md#evidence-and-outstanding-acceptance">Windows acceptance details</a>
+      before deciding to install. macOS signing and notarization are separate.
+    </div>
+    <div class="windows-extras">
+      <h3>Optional desktop themes</h3>
+      <p>Classic and Black Light wallpaper/color packs are separate from the animated screensaver. Import them only if you want to change your desktop.</p>
+      <div class="cta-row">
+        <a class="btn btn-secondary" data-release-asset="Pickleball-Classic.deskthemepack" href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases">Classic theme pack</a>
+        <a class="btn btn-secondary" data-release-asset="Pickleball-BlackLight.deskthemepack" href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases">Black Light theme pack</a>
+        <a class="btn btn-secondary" href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases">All packages &amp; SHA-256 checksums</a>
+      </div>
+    </div>
+    <div class="windows-install">
+      <h3>Install on Windows</h3>
+      <div class="step-grid">
+        <div class="step">
+          <strong>Step 01</strong>
+          <h3>Install or unpack</h3>
+          <p>Run the matching MSI for a current-user install, or extract the portable ZIP and keep all its files together. Nothing goes into System32.</p>
+        </div>
+        <div class="step">
+          <strong>Step 02</strong>
+          <h3>Select it explicitly</h3>
+          <p>For MSI installs, use the Start menu’s Pickleball Select (opt in) shortcut. Portable users can use Maintain.ps1 -Action Select. Both ask before changing your selected saver.</p>
+        </div>
+        <div class="step">
+          <strong>Step 03</strong>
+          <h3>Set up your court</h3>
+          <p>Open Pickleball settings from the Start menu, or double-click PickleballScreensaver.scr in the portable folder. Choose appearance, game format, motion and widgets.</p>
+        </div>
+      </div>
+      <p class="hero-note">Installation does not automatically activate a screensaver, apply a theme or change idle timeout, password, lock or sleep policy. Windows controls those settings.</p>
+    </div>
   </section>
 
   <section aria-label="Mission">
@@ -500,7 +573,7 @@
       <article class="card">
         <div class="icon" aria-hidden="true">↻</div>
         <h3>Motion at your pace</h3>
-        <p>A slow 12-second turn each minute, the original 6-second spin, or no spin. macOS Reduce motion disables court spins and ambient effects.</p>
+        <p>A slow 12-second turn each minute, the original 6-second spin, or no spin. macOS Reduce motion or turning Windows Animation effects off disables court spins and ambient effects.</p>
       </article>
       <article class="card">
         <div class="icon" aria-hidden="true">↑</div>
@@ -529,8 +602,9 @@
     <div class="section-kicker">Screens</div>
     <h2 id="screens-title">Find your court-side mood</h2>
     <p class="section-intro">
-      Choose one appearance in System Settings → Screen Saver → Options….
-      These are actual renders from the screensaver, not mockups.
+      Choose one appearance in macOS System Settings → Screen Saver → Options…
+      or in Pickleball settings on Windows. These previews are actual macOS
+      renders, not mockups.
     </p>
     <div class="shot-shell">
       <div class="appearance-picker" role="group" aria-label="Preview an appearance" hidden>
@@ -577,7 +651,7 @@
   </section>
 
   <section aria-labelledby="install-title">
-    <div class="section-kicker">Install</div>
+    <div class="section-kicker">Install on macOS</div>
     <h2 id="install-title">From download to screen saver in a minute</h2>
     <div class="step-grid">
       <div class="step">
@@ -603,13 +677,16 @@
       <div class="section-kicker">Get it</div>
       <h2>Download the latest build</h2>
       <p>
-        The latest release is signed and notarized for macOS 14+. If you want
-        the source, screenshots, or issue tracker, the GitHub repo is one click
-        away.
+        Signed and notarized downloads for macOS 14+, plus unsigned native
+        packages for Windows 11 x64 and ARM64. The source and issue tracker
+        are one click away.
       </p>
       <div class="cta-row" style="justify-content:center;">
         <a class="btn btn-primary" href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest/download/PickleballScreensaver.dmg">
-          Download DMG
+          Download macOS DMG
+        </a>
+        <a class="btn btn-secondary" href="#windows-downloads">
+          Windows downloads
         </a>
         <a class="btn btn-secondary" href="https://github.com/denmanjohn-maker/pickleball-screensaver">
           View on GitHub
@@ -626,7 +703,7 @@
       ·
       <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases">All releases</a>
     </p>
-    <p style="margin-top:8px;">Requires macOS 14.0 or later. Runs on Apple Silicon and Intel Macs.</p>
+    <p style="margin-top:8px;">macOS 14+ on Apple Silicon or Intel. Windows 11 on native x64 or ARM64.</p>
   </footer>
 </div>
 
@@ -650,15 +727,33 @@
 
   fetch("https://api.github.com/repos/denmanjohn-maker/pickleball-screensaver/releases/latest")
     .then(function (response) {
-      return response.ok ? response.json() : null;
+      if (!response.ok) throw new Error("Release lookup unavailable");
+      return response.json();
     })
     .then(function (release) {
       if (release && release.tag_name) {
         document.getElementById("version").textContent =
           "Version " + release.tag_name.replace(/^v/, "") + " · ";
       }
+      const available = new Set((release.assets || []).map(function (asset) { return asset.name; }));
+      const links = Array.from(document.querySelectorAll("[data-release-asset]"));
+      let found = 0;
+      links.forEach(function (link) {
+        const name = link.dataset.releaseAsset;
+        if (available.has(name)) {
+          link.href = "https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest/download/" + encodeURIComponent(name);
+          found++;
+        }
+      });
+      document.getElementById("windows-release-status").textContent =
+        found === links.length ? "Windows downloads are available in the latest release. Each package has a matching SHA-256 checksum on GitHub Releases." :
+        found === 0 ? "The latest release does not yet include Windows packages. Links open GitHub Releases; Windows downloads will appear with the next shared release." :
+        "Some Windows packages are not in the latest release. Unavailable download links open GitHub Releases.";
     })
-    .catch(function () {});
+    .catch(function () {
+      document.getElementById("windows-release-status").textContent =
+        "Could not check Windows download availability. Links open GitHub Releases so you can check published packages and SHA-256 checksums.";
+    });
 </script>
 </body>
 </html>
