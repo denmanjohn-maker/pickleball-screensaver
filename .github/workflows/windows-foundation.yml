@@ -2,170 +2,26 @@ name: Windows validation
 
 on:
   pull_request:
-    paths: ['windows/**', 'PickleballScreensaver/**', 'assets/icon/icon.svg', '.github/workflows/windows-foundation.yml']
+    paths: ['windows/**', 'PickleballScreensaver/**', 'assets/icon/icon.svg', '.github/workflows/windows-foundation.yml', '.github/workflows/windows-build.yml', '.github/workflows/release.yml']
   push:
     branches: [main]
-    paths: ['windows/**', 'PickleballScreensaver/**', 'assets/icon/icon.svg', '.github/workflows/windows-foundation.yml']
+    paths: ['windows/**', 'PickleballScreensaver/**', 'assets/icon/icon.svg', '.github/workflows/windows-foundation.yml', '.github/workflows/windows-build.yml', '.github/workflows/release.yml']
   workflow_dispatch:
     inputs:
       sign:
-        description: 'Sign Windows candidates on main only (requires separate Windows secrets; NEVER uploads a release)'
+        description: 'Sign Windows candidates on main only (requires separate Windows secrets; NEVER publishes a release)'
         type: boolean
         default: false
 
 permissions:
   contents: read
-env:
-  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
 
 jobs:
-  portable-core:
-    runs-on: macos-15
-    defaults:
-      run:
-        working-directory: windows
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      - name: Verify Windows and macOS product versions agree
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import plistlib
-          import xml.etree.ElementTree as ET
-
-          mac = plistlib.loads(Path("../PickleballScreensaver/Info.plist").read_bytes())
-          windows = ET.parse("Directory.Build.props").findtext("./PropertyGroup/Version")
-          expected = mac["CFBundleShortVersionString"]
-          if len(expected.split(".")) == 2:
-              expected += ".0"
-          if windows != expected:
-              raise SystemExit(f"Windows version {windows} must match macOS {expected}")
-          print(f"Both platforms use product version {windows}")
-          PY
-      - run: dotnet test tests/Pickleball.Core.Tests -c Release --nologo
-      - run: python3 -B -m unittest discover -s packaging -p 'test_*.py'
-      - name: Regenerate unchanged Swift golden contact traces
-        run: |
-          mkdir -p artifacts/swift-reference
-          swiftc ../PickleballScreensaver/RallyEngine.swift tools/parity/main.swift -o artifacts/swift-reference/export
-          artifacts/swift-reference/export artifacts/swift-reference/final-main-seed42.json
-          python3 tools/parity/compare.py tests/Pickleball.Core.Tests/Fixtures/final-main-seed42.json artifacts/swift-reference/final-main-seed42.json
-
-  themes:
-    runs-on: windows-2025
-    defaults:
-      run:
-        working-directory: windows
-        shell: pwsh
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      - name: Build two architecture-independent clean wallpaper CAB theme packs
-        run: |
-          ./packaging/build-themes.ps1 -Output "$PWD/artifacts/themes"
-          python packaging/audit_themes.py artifacts/themes
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Windows-shared-theme-packs
-          path: |
-            windows/artifacts/themes/*.deskthemepack
-            windows/artifacts/themes/*.sha256
-          if-no-files-found: error
-
-  native-windows:
-    needs: [portable-core, themes]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: windows-2025
-            rid: win-x64
-            architecture: X64
-          - runner: windows-11-arm
-            rid: win-arm64
-            architecture: Arm64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
-    defaults:
-      run:
-        working-directory: windows
-        shell: pwsh
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      - name: Require native SDK and OS architecture
-        run: |
-          if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() -ne '${{ matrix.architecture }}') { throw 'Wrong OS architecture' }
-          if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString() -ne '${{ matrix.architecture }}') { throw 'PowerShell process is emulated' }
-          $info = dotnet --info
-          $info
-          if (-not ($info -match 'Architecture:\s+${{ matrix.architecture }}')) { throw 'SDK architecture not native' }
-      - run: dotnet test tests/Pickleball.Core.Tests -c Release --nologo
-      - run: python -B -m unittest discover -s packaging -p 'test_*.py'
-      - uses: actions/download-artifact@v4
-        with:
-          name: Windows-shared-theme-packs
-          path: windows/artifacts/themes
-      - name: Publish, audit native dependencies and make architecture-labeled ZIPs
-        env:
-          WINDOWS_SIGNING_PFX_BASE64: ${{ github.event_name == 'workflow_dispatch' && inputs.sign && github.ref == 'refs/heads/main' && secrets.WINDOWS_SIGNING_PFX_BASE64 || '' }}
-          WINDOWS_SIGNING_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && inputs.sign && github.ref == 'refs/heads/main' && secrets.WINDOWS_SIGNING_PASSWORD || '' }}
-          WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
-        run: |
-          $sign = @()
-          if ('${{ github.event_name }}' -eq 'workflow_dispatch' -and '${{ inputs.sign }}' -eq 'true') {
-            if ('${{ github.ref }}' -ne 'refs/heads/main') { throw 'Signing candidates is restricted to main after review' }
-            $sign = @('--sign')
-          }
-          python packaging/publish.py --rid '${{ matrix.rid }}' @sign
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Native WPF child lifecycle and renamed self-contained apphost smoke tests
-        run: |
-          $scr = (Get-ChildItem artifacts -Recurse -Filter PickleballScreensaver.scr | Where-Object { $_.Directory.Name -notlike '*-folder' }).FullName
-          if (@($scr).Count -ne 1) { throw 'Expected exactly one bundled .scr' }
-          dotnet run --project tests/Pickleball.Windows.Tests -c Release -- artifacts/native-tests '${{ matrix.architecture }}' "$scr"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: All five appearances, formats, motion and viewport image fixtures
-        run: ./packaging/test-render.ps1 -Output "$PWD/artifacts/native-tests"
-      - name: Build native current-user MSI without third-party installer tooling
-        run: |
-          $payload = (Get-ChildItem artifacts -Directory | Where-Object { $_.Name -match '^PickleballScreensaver-1\.6\.0-${{ matrix.rid }}$' }).FullName
-          ./packaging/build-msi.ps1 -Rid '${{ matrix.rid }}' -Payload "$payload" -Themes "$PWD/artifacts/themes" -Output "$PWD/artifacts/installers"
-          # Synthetic next-version fixture is test-only and is never uploaded as a product candidate.
-          ./packaging/build-msi.ps1 -Rid '${{ matrix.rid }}' -Payload "$payload" -Themes "$PWD/artifacts/themes" -Output "$PWD/artifacts/native-tests/upgrade" -Version 1.6.1
-      - name: Installer registration, repair and owned-file/reference removal
-        run: |
-          $msi = (Get-ChildItem artifacts/installers -Filter *.msi).FullName
-          $upgrade = (Get-ChildItem artifacts/native-tests/upgrade -Filter *.msi).FullName
-          ./packaging/test-native-packages.ps1 -Msi "$msi" -UpgradeMsi "$upgrade" -Output "$PWD/artifacts/native-tests/msi" -IsolatedRunner
-      - name: Optionally sign MSI candidate and write final checksums
-        env:
-          WINDOWS_SIGNING_PFX_BASE64: ${{ github.event_name == 'workflow_dispatch' && inputs.sign && github.ref == 'refs/heads/main' && secrets.WINDOWS_SIGNING_PFX_BASE64 || '' }}
-          WINDOWS_SIGNING_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && inputs.sign && github.ref == 'refs/heads/main' && secrets.WINDOWS_SIGNING_PASSWORD || '' }}
-          WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
-        run: |
-          foreach ($file in Get-ChildItem artifacts/installers -Filter *.msi) {
-            if ('${{ github.event_name }}' -eq 'workflow_dispatch' -and '${{ inputs.sign }}' -eq 'true') { ./packaging/sign.ps1 -Path $file.FullName }
-            $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $($file.Name)" | Set-Content "$($file.FullName).sha256" -Encoding ASCII
-          }
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: Windows-candidate-${{ matrix.rid }}
-          path: |
-            windows/artifacts/*.zip
-            windows/artifacts/*.sha256
-            windows/artifacts/native-tests/*.png
-            windows/artifacts/native-tests/msi/*.log
-            windows/artifacts/installers/*.msi
-            windows/artifacts/installers/*.sha256
-          if-no-files-found: error
+  windows:
+    uses: ./.github/workflows/windows-build.yml
+    with:
+      artifact-prefix: Windows-candidate
+      sign: ${{ github.event_name == 'workflow_dispatch' && inputs.sign }}
+    secrets:
+      WINDOWS_SIGNING_PFX_BASE64: ${{ github.event_name == 'workflow_dispatch' && inputs.sign && github.ref == 'refs/heads/main' && secrets.WINDOWS_SIGNING_PFX_BASE64 || '' }}
+      WINDOWS_SIGNING_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && inputs.sign && github.ref == 'refs/heads/main' && secrets.WINDOWS_SIGNING_PASSWORD || '' }}

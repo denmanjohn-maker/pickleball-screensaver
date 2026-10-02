@@ -2,28 +2,45 @@
 
 ## Cutting a release
 
-Releases are built, signed, notarized, and published automatically by
+Shared macOS and Windows releases are built and published automatically by
 [.github/workflows/release.yml](.github/workflows/release.yml) whenever a
-`vX.Y` tag is pushed:
+new `vX.Y` or `vX.Y.Z` tag is pushed. macOS is signed and notarized; Windows
+is explicitly **unsigned**. The single publishing job waits for both platforms'
+build/check jobs, uploads a draft, and makes it public only after all uploads
+succeed.
 
 1. Bump `CFBundleShortVersionString` in `PickleballScreensaver/Info.plist`
-   (the workflow fails if the tag and plist version disagree).
+   and `Version` in `windows/Directory.Build.props` together.
+   For example, macOS `1.7` corresponds to Windows `1.7.0`; macOS `1.7.1`
+   corresponds to Windows `1.7.1`. Use a fresh version higher than the previous
+   release; Windows Installer supports numeric major/minor/patch values up to
+   255/255/65535. The workflow fails if the product versions or tag disagree.
 2. Commit to `main`, then:
 
    ```sh
-   git tag v1.1
-   git push origin v1.1
+   git tag v1.7
+   git push origin v1.7
    ```
 
-3. In ~10 minutes (notarization included) the release appears at
-   https://github.com/denmanjohn-maker/pickleball-screensaver/releases with
-   four assets: versioned zip/dmg plus version-less
-   `PickleballScreensaver.zip` / `PickleballScreensaver.dmg` copies. The
-   version-less names keep the download page's
-   `releases/latest/download/...` links stable across versions.
+3. After builds, native Windows checks, notarization and uploads succeed, the
+   release appears at
+   https://github.com/denmanjohn-maker/pickleball-screensaver/releases.
+   It retains the four macOS assets: versioned ZIP/DMG plus versionless
+   `PickleballScreensaver.zip` / `PickleballScreensaver.dmg`.
+   Windows assets are listed below. Versionless names keep the download
+   page's `releases/latest/download/...` URLs stable across versions.
 
-You can also run the workflow manually from the Actions tab as a build-only
-dry run — it uploads the artifacts without creating a release.
+You can also run **Release** manually from the Actions tab as a build-only
+dry run, choosing `all`, `windows` or `macos`. It uploads artifacts without
+creating a release, **even if you select a tag**. Windows-only dry runs do
+not need Apple secrets. Windows packages and themes are separate artifacts;
+diagnostic screenshots/logs are separate again and are never release assets.
+
+Do not reuse existing tags or rerun publication over `v1.5`/`v1.6`. An existing
+release or draft for the tag stops publication without replacing any assets.
+If an upload fails after creating a draft, inspect and explicitly remove that
+failed draft before retrying the failed job; nothing is silently overwritten.
+No Windows assets are retroactively added to the existing macOS-only `v1.6`.
 
 ### One-time GitHub setup
 
@@ -177,30 +194,72 @@ Application** certificate, which requires the Apple Developer Program
 
 Ship that final zip. Recipients just double-click — no warnings.
 
-## Windows candidates and coordinated promotion
+## Windows releases and downloads
 
 Windows 11 ARM64/x64 code, current-user MSI, complete self-contained portable
 ZIPs and architecture-independent Classic/Black Light CAB theme packs live
 under [`windows/`](windows/README.md). Product version 1.6 uses the .NET/MSI
 numeric version 1.6.0. Windows architecture is explicit in every saver/installer
 filename, with individual SHA-256 files. No .NET installation is required.
+For a Windows version `<version>` and `<rid>` of `win-x64` or `win-arm64`,
+each release includes:
 
-`.github/workflows/windows-foundation.yml` now validates the real engine,
+| Package | Versioned filename | Stable download filename |
+|---|---|---|
+| Current-user installer | `PickleballScreensaver-<version>-<rid>.msi` | `PickleballScreensaver-<rid>.msi` |
+| Complete portable ZIP | `PickleballScreensaver-<version>-<rid>.zip` | `PickleballScreensaver-<rid>.zip` |
+| Unbundled folder ZIP fallback | `PickleballScreensaver-<version>-<rid>-folder.zip` | `PickleballScreensaver-<rid>-folder.zip` |
+| Optional Classic wallpaper/colors | `Pickleball-Classic.deskthemepack` | Same |
+| Optional Black Light wallpaper/colors | `Pickleball-BlackLight.deskthemepack` | Same |
+
+Every Windows asset, including each stable alias, has a `.sha256` sidecar
+containing that exact filename. Verify a downloaded package on Windows with
+`Get-FileHash .\PickleballScreensaver-win-x64.msi -Algorithm SHA256`, comparing
+the result with the matching checksum. Checksums detect damaged downloads;
+they do not replace publisher signing or establish publisher trust.
+
+`.github/workflows/windows-build.yml` validates the real engine,
 artwork, settings/providers, native renamed `.scr`, screenshots, CAB packs
 and MSI lifecycle on native x64 Server and native ARM64 Windows 11 runners.
-Default artifacts are **unsigned development candidates**. Actual Windows 11
-desktop/standard-user/performance/secure-resume acceptance and a Windows
-Authenticode identity remain release gates; neither successful compilation
-nor Apple signing/notarization satisfies those gates.
+Both **Release** and **Windows validation** reuse those checks. Product/MSI
+and synthetic upgrade-test versions are derived from the product metadata,
+not hard-coded. Release staging requires the exact inventory, correct native
+package metadata and valid checksums; test fixtures cannot be promoted.
 
-The existing **Release** workflow is the only release owner. Windows validation
-uploads CI artifacts only—even its explicitly requested, main-only signing
-path never creates a release. Keep macOS versionless asset URLs unchanged.
-Do not rerun/publish over the existing `v1.5` or `v1.6` automatically. After documented
-desktop acceptance and explicit maintainer approval, the single release owner
-can attach reviewed architecture-labeled Windows packages and checksums.
-Windows signing secrets are independent of all Apple secrets; signing does
-not guarantee SmartScreen reputation.
+Public Windows builds are **unsigned** by design in this workflow.
+Unknown-publisher or SmartScreen warnings are possible; no Windows signing
+secret is needed for releases. Actual Windows 11 desktop, standard-user,
+performance and secure-resume acceptance remain outstanding, not certified
+by hosted checks. See [the acceptance details](windows/README.md#evidence-and-outstanding-acceptance).
+Do not describe these releases as signed, warning-free or desktop-certified.
+
+The existing **Release** workflow is the only release owner. **Windows
+validation** uploads candidates only—even its explicitly requested, main-only
+signing option never creates a release. Optional candidate signing uses
+independent `WINDOWS_SIGNING_PFX_BASE64` / `WINDOWS_SIGNING_PASSWORD` secrets and
+the HTTPS `WINDOWS_TIMESTAMP_URL` repository variable. These are not Apple
+credentials. Signing a validation candidate does not change the public
+unsigned-release policy or guarantee SmartScreen reputation.
+
+### Installing on Windows 11
+
+Choose the native architecture in **Settings → System → About → System type**:
+x64 for Intel/AMD, ARM64 for ARM. The MSI installs for the current user under
+`%LOCALAPPDATA%\Programs\PickleballScreensaver`; it does not place files in
+System32, activate a saver, apply a theme or change security/idle policy.
+Use the Start menu's **Pickleball Select (opt in)** shortcut to explicitly
+select the saver and **Pickleball settings** to configure it.
+
+For a portable ZIP, extract it and keep all files together. Double-click
+`PickleballScreensaver.scr` for settings, and use `Maintain.ps1 -Action Select`
+for explicit selection. Use `Maintain.ps1 -Action Uninstall` before deleting
+a selected portable copy. MSI users uninstall through Windows Installed apps.
+Theme packs are optional, user-owned desktop wallpaper/color customizations.
+
+GitHub Pages continues to serve `main` / `docs`. Windows download links fall
+back to the Releases listing before the first Windows release, when JavaScript
+is disabled or when availability cannot be checked. Once matching assets
+exist in the latest release, the page resolves them to direct stable downloads.
 
 MSI authoring uses Windows Installer COM/makecab already present on Windows,
 not WiX downloads. See the Windows guide for the verified WiX binary OSMF

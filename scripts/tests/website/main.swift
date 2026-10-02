@@ -3,6 +3,14 @@ import WebKit
 
 let args = CommandLine.arguments
 let noScript = args.contains("--no-script")
+let releaseScenario = args.first(where: { $0.hasPrefix("--release=") }).map {
+    String($0.dropFirst("--release=".count))
+} ?? "windows"
+let windowsAssetNames = [
+    "PickleballScreensaver-win-x64.msi", "PickleballScreensaver-win-x64.zip",
+    "PickleballScreensaver-win-arm64.msi", "PickleballScreensaver-win-arm64.zip",
+    "Pickleball-Classic.deskthemepack", "Pickleball-BlackLight.deskthemepack"
+]
 let width: CGFloat = args.contains("--mobile") ? 375 : 1440
 let height: CGFloat = args.contains("--mobile") ? 812 : 1000
 let snapshotDirectory: URL? = args.first(where: { $0.hasPrefix("--snapshots=") }).map {
@@ -19,6 +27,31 @@ final class WebsiteCheck: NSObject, WKNavigationDelegate {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
         config.defaultWebpagePreferences.allowsContentJavaScript = !noScript
+        let fixtureNames: [String]
+        switch releaseScenario {
+        case "windows": fixtureNames = windowsAssetNames
+        case "partial": fixtureNames = Array(windowsAssetNames.prefix(1))
+        case "macos", "network-failure", "http-error": fixtureNames = []
+        default: fatalError("Unknown release fixture: \(releaseScenario)")
+        }
+        let fixture: [String: Any] = [
+            "tag_name": "v2.3",
+            "assets": (["PickleballScreensaver.dmg", "PickleballScreensaver.zip"] + fixtureNames).map { ["name": $0] }
+        ]
+        let fixtureJSON = String(data: try! JSONSerialization.data(withJSONObject: fixture), encoding: .utf8)!
+        let response = releaseScenario == "network-failure" ?
+            "Promise.reject(new Error('Fixture network failure'))" :
+            "Promise.resolve({ok: \(releaseScenario != "http-error"), json: () => Promise.resolve(\(fixtureJSON))})"
+        config.userContentController.addUserScript(WKUserScript(source: """
+            window.__fixtureReleaseCalls = 0;
+            window.fetch = function (url) {
+                window.__fixtureReleaseCalls++;
+                if (url !== "https://api.github.com/repos/denmanjohn-maker/pickleball-screensaver/releases/latest") {
+                    return Promise.reject(new Error("Unexpected website request"));
+                }
+                return \(response);
+            };
+            """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         webView = WKWebView(frame: NSRect(x: 0, y: 0, width: width, height: height), configuration: config)
         window = NSWindow(contentRect: webView.frame, styleMask: [.borderless],
                           backing: .buffered, defer: false)
@@ -44,14 +77,36 @@ final class WebsiteCheck: NSObject, WKNavigationDelegate {
                     assert(buttons.every((b, i) => b.textContent === names[i]), "Incorrect appearance labels");
                     assert(new Set(panels.map(p => p.id)).size === 5, "Duplicate panel IDs");
                     assert(document.documentElement.scrollWidth <= window.innerWidth, "Horizontal overflow");
-                    const windows = document.querySelector('section[aria-label="Windows 11"]');
-                    const windowsDownload = windows && windows.querySelector("a.btn");
-                    assert(windowsDownload && windowsDownload.textContent.trim() === "Download Windows builds", "Missing Windows download CTA");
-                    assert(windowsDownload.href === "https://github.com/denmanjohn-maker/pickleball-screensaver/releases", "Windows CTA must link to Releases");
+                    const releasesURL = "https://github.com/denmanjohn-maker/pickleball-screensaver/releases";
+                    const windows = document.getElementById("windows-downloads");
+                    const windowsDownloads = [...windows.querySelectorAll("[data-release-asset]")];
+                    assert(windowsDownloads.length === 6, "Missing Windows package/theme links");
+                    assert(windowsDownloads.every((link, i) => link.dataset.releaseAsset === windowsAssetNames[i]), "Incorrect Windows download filenames");
                     assert(windows.textContent.includes("ARM64") && windows.textContent.includes("x64"), "Missing Windows architectures");
-                    assert(windows.querySelector(".hero-note").textContent.includes("validation candidates"), "Missing Windows validation notice");
-                    const downloadRect = windowsDownload.getBoundingClientRect();
-                    assert(downloadRect.width > 0 && downloadRect.height > 0 && downloadRect.left >= 0 && downloadRect.right <= innerWidth, "Windows CTA hidden or clipped");
+                    assert(windows.textContent.includes("System type") && windows.textContent.includes(".NET"), "Missing Windows requirements");
+                    assert(windows.querySelector(".windows-notice").textContent.includes("unsigned"), "Missing unsigned Windows notice");
+                    assert(windows.querySelector(".windows-notice").textContent.includes("SmartScreen"), "Missing Windows warning");
+                    assert(windows.querySelector(".windows-notice").textContent.includes("standard-user"), "Missing desktop acceptance limitation");
+                    assert(windows.querySelector(".windows-install").textContent.includes("current-user"), "Missing MSI installation instructions");
+                    assert(windows.querySelector(".windows-install").textContent.includes("keep all its files together"), "Missing portable instructions");
+                    assert(windows.querySelector(".windows-install").textContent.includes("does not automatically activate"), "Missing opt-in/policy notice");
+                    assert(document.title.includes("Windows"), "Missing Windows page metadata");
+                    const availableCount = noScript || ["macos", "network-failure", "http-error"].includes(releaseScenario) ? 0 :
+                        releaseScenario === "partial" ? 1 : windowsAssetNames.length;
+                    for (const [index, link] of windowsDownloads.entries()) {
+                        const expected = index < availableCount ? releasesURL + "/latest/download/" + link.dataset.releaseAsset : releasesURL;
+                        assert(link.href === expected, "Incorrect direct download or fallback for " + link.dataset.releaseAsset);
+                        const rect = link.getBoundingClientRect();
+                        assert(rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.right <= innerWidth, "Windows download hidden or clipped");
+                    }
+                    const status = document.getElementById("windows-release-status");
+                    assert(status.getAttribute("role") === "status", "Missing accessible download status");
+                    assert(window.__fixtureReleaseCalls === (noScript ? 0 : 1), "Unexpected live or duplicate release request");
+                    const expectedStatus = noScript ? "open GitHub Releases" :
+                        releaseScenario === "windows" ? "available in the latest release" :
+                        releaseScenario === "macos" ? "does not yet include Windows" :
+                        releaseScenario === "partial" ? "Some Windows packages" : "Could not check";
+                    assert(status.textContent.includes(expectedStatus), "Incorrect Windows availability notice");
                     const macDownloads = [...document.querySelectorAll(".hero .cta-row a")];
                     assert(macDownloads.length === 2, "macOS download options changed");
                     assert(macDownloads[0].href === "https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest/download/PickleballScreensaver.dmg", "macOS DMG link changed");
@@ -93,8 +148,9 @@ final class WebsiteCheck: NSObject, WKNavigationDelegate {
                     }
                     assert(document.getAnimations().length === 0, "Unexpected automatic gallery animation");
                     const sources = [...document.querySelectorAll("img")].map(img => img.getAttribute("src"));
-                    return { width: innerWidth, screenshots: panels.length, noScript, sources };
-                    """, arguments: ["noScript": noScript], in: nil, contentWorld: .page)
+                    return { width: innerWidth, screenshots: panels.length, noScript, releaseScenario, sources };
+                    """, arguments: ["noScript": noScript, "releaseScenario": releaseScenario,
+                                     "windowsAssetNames": windowsAssetNames], in: nil, contentWorld: .page)
                 print("Website checks passed: \(String(describing: result))")
                 if let directory = snapshotDirectory {
                     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

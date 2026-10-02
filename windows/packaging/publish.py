@@ -17,6 +17,20 @@ PROJECT = ROOT / "src/Pickleball.Windows/Pickleball.Windows.csproj"
 MACHINES = {"win-x64": 0x8664, "win-arm64": 0xAA64}
 
 
+def digest(path):
+    checksum = hashlib.sha256()
+    with path.open("rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            checksum.update(block)
+    return checksum.hexdigest()
+
+
+def write_checksum(path):
+    checksum = digest(path)
+    path.with_name(path.name + ".sha256").write_text(f"{checksum}  {path.name}\n", encoding="ascii")
+    return checksum
+
+
 def pe_info(path):
     return pe_bytes(path.read_bytes(), path.name)
 
@@ -106,14 +120,15 @@ def main():
             "No arguments or /c: configure; /p HWND: offline embedded preview; /s: fullscreen.\n"
             "Keep ALL files together. Single-file native dependencies extract to the .NET user cache.\n"
             "Both clean theme CABs are included. Maintain.ps1 -Action Classic/Blacklight imports them only when explicitly requested.\n"
-            "Windows 11 native runtime acceptance is required before distribution.\n", encoding="utf-8")
+            f"{'Signing does not guarantee SmartScreen reputation.' if args.sign else 'Unsigned builds may trigger unknown-publisher or SmartScreen warnings.'}\n"
+            "Final Windows 11 desktop, standard-user and performance acceptance is not certified.\n"
+            "Downloads and acceptance details: https://denmanjohn-maker.github.io/pickleball-screensaver/#windows-downloads\n", encoding="utf-8")
         for script in ("Maintain.ps1",):
             shutil.copyfile(ROOT / "packaging" / script, directory / script)
         for label in ("Classic", "BlackLight"):
             cabinet = themes / f"Pickleball-{label}.deskthemepack"
             shutil.copyfile(cabinet, directory / cabinet.name)
-            digest = hashlib.sha256(cabinet.read_bytes()).hexdigest()
-            (directory / (cabinet.name + ".sha256")).write_text(f"{digest}  {cabinet.name}\n", encoding="ascii")
+            write_checksum(directory / cabinet.name)
         if args.sign:
             subprocess.run(["powershell", "-NoProfile", "-File", str(ROOT / "packaging/sign.ps1"),
                             "-Path", str(directory / "PickleballScreensaver.scr")], check=True)
@@ -129,13 +144,8 @@ def main():
             for path in sorted(directory.rglob("*")):
                 if path.is_file():
                     bundle.write(path, Path(directory.name) / path.relative_to(directory))
-        checksum = hashlib.sha256()
-        with archive.open("rb") as source:
-            for block in iter(lambda: source.read(1024 * 1024), b""):
-                checksum.update(block)
-        digest = checksum.hexdigest()
-        archive.with_suffix(".zip.sha256").write_text(f"{digest}  {archive.name}\n", encoding="ascii")
-        print(f"Published {archive.name}; SHA256={digest}")
+        checksum = write_checksum(archive)
+        print(f"Published {archive.name}; SHA256={checksum}")
 
 
 if __name__ == "__main__":

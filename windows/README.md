@@ -8,8 +8,30 @@ do not install .NET. Running the x64 package under ARM emulation is rejected.
 The source baseline is final merged macOS **f0dc8161d77215cd4fe5dd5ed73bfe8ae541b6c3**
 (evaluation PR #36 and artwork PR #37, macOS 1.5/build 2). The initial Windows
 host commit was **52f84741c137a8a73cbf8f91338c3056d93f219d**. No provisional
-art branch is used. Windows packages remain **validation candidates**, not
-automatically published releases.
+art branch is used. New shared version-tag releases publish native Windows
+packages alongside macOS through the single **Release** workflow. Public
+Windows packages are **unsigned**; final desktop, standard-user and performance
+acceptance remains outstanding. Existing macOS-only `v1.6` is not overwritten.
+
+## Downloads
+
+Use the [Windows download page](https://denmanjohn-maker.github.io/pickleball-screensaver/#windows-downloads)
+or [GitHub Releases](https://github.com/denmanjohn-maker/pickleball-screensaver/releases).
+Windows downloads first appear with a new shared release; before that the
+page's Windows links open the Releases listing rather than missing assets.
+Choose the native OS architecture in **Settings → System → About → System type**:
+
+| Windows 11 PC | Installer | Portable ZIP |
+|---|---|---|
+| Intel/AMD (x64) | `PickleballScreensaver-win-x64.msi` | `PickleballScreensaver-win-x64.zip` |
+| ARM (ARM64) | `PickleballScreensaver-win-arm64.msi` | `PickleballScreensaver-win-arm64.zip` |
+
+Each stable download and versioned package has a matching `.sha256` file.
+Complete `-folder.zip` fallbacks and optional `Pickleball-Classic.deskthemepack`
+and `Pickleball-BlackLight.deskthemepack` downloads are also on the release.
+No .NET install is needed. Keep all portable files together.
+**Unsigned packages may trigger unknown-publisher or SmartScreen warnings.**
+Checksums verify download integrity, not publisher identity.
 
 ## Implemented feature inventory
 
@@ -127,7 +149,8 @@ On **native Windows**:
 dotnet run --project tools/Pickleball.Preview -c Release -- artifacts/ink.png 800 42 1280x720 '2026-01-01T12:00:00.0000000+00:00' ink-and-paper singles reduced
 ./packaging/test-render.ps1 -Output "$PWD/artifacts/render"
 ./packaging/build-themes.ps1 -Output "$PWD/artifacts/themes"
-./packaging/build-msi.ps1 -Rid win-arm64 -Payload "$PWD/artifacts/PickleballScreensaver-1.6.0-win-arm64" -Themes "$PWD/artifacts/themes" -Output "$PWD/artifacts/installers"
+$version = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version
+./packaging/build-msi.ps1 -Rid win-arm64 -Payload "$PWD/artifacts/PickleballScreensaver-$version-win-arm64" -Themes "$PWD/artifacts/themes" -Output "$PWD/artifacts/installers" -Version "$version"
 ```
 
 Exporter arguments: output, frame (0..36000), uint seed, size, ISO epoch,
@@ -169,10 +192,12 @@ an exemption. Source/self-compiled binaries are separately governed by
 [MS-RL](https://github.com/wixtoolset/wix/blob/main/LICENSE.TXT).
 No payment or acceptance of those binary terms is performed by this build.
 
-## Signing and single release owner
+## Release automation, signing and single release owner
 
-No Windows Authenticode identity was supplied. Default outputs are labeled
-**unsigned development candidates**; SmartScreen warnings are possible.
+No Windows Authenticode identity was supplied. Public release packages and
+default validation outputs are explicitly **unsigned**; SmartScreen warnings
+are possible. Public packages retain their unsigned-development labeling and
+do not imply completed desktop acceptance.
 Optional `publish.py --sign` and `sign.ps1` require **separate Windows**
 `WINDOWS_SIGNING_PFX_BASE64`, `WINDOWS_SIGNING_PASSWORD`, and HTTPS
 `WINDOWS_TIMESTAMP_URL`; certificate material stays in memory and is disposed.
@@ -180,13 +205,28 @@ Signing fails if signature/trusted timestamp verification fails. Apple
 credentials are never reused. Successful signing still does not promise
 SmartScreen reputation or warning-free installation.
 
-Windows validation uses only read permissions and artifact uploads. Its
-manual signing option is restricted to reviewed `main`. It never creates a
-release, tags or merges. Existing `.github/workflows/release.yml` remains the
-**single release owner** and macOS versionless download URLs are unchanged.
-Do **not** republish/overwrite already-triggered `v1.5` or `v1.6`. Windows promotion
-requires explicit maintainer approval after the gates below, then attachment
-through the one release-owner path; no competing Windows publisher exists.
+`.github/workflows/windows-build.yml` is the reusable read-only build/check
+pipeline for native x64 and ARM64 packages. `.github/workflows/windows-foundation.yml`
+calls it for PR/main validation and optional main-only signed candidates; it
+never creates releases, tags or merges. Diagnostic PNGs/logs are separate
+artifacts, and synthetic MSI upgrades are test-only.
+
+`.github/workflows/release.yml` remains the **single release owner**. New `v*`
+tags matching both platforms' product metadata build macOS and Windows in
+parallel. Only after both succeed does the publisher verify inventories and
+checksums, create stable download aliases, upload a draft and make it public.
+The release path is unsigned for Windows and does not consume Windows signing
+secrets. macOS signing and versionless download URLs are unchanged.
+
+Run **Release** manually with `platform=windows` for a Windows-only dry run,
+or choose `all`/`macos`. Manual runs only upload artifacts, even on a tag;
+Windows-only runs require no Apple secrets. Bump Windows `Version` together
+with macOS `CFBundleShortVersionString`; `1.7` maps to `1.7.0`, or both can
+use `1.7.1`. The native MSI builder requires an explicit version, and CI derives
+the next supported numeric version for synthetic upgrade tests.
+Do **not** republish/overwrite already-triggered `v1.5` or `v1.6`. Existing
+releases/drafts are rejected rather than silently modified. See
+[DISTRIBUTING.md](../DISTRIBUTING.md#cutting-a-release) for the coordinated process.
 
 ## Evidence and outstanding acceptance
 
@@ -221,7 +261,8 @@ registration context or the absence of machine registration. This is
 **package-authoring and hosted lifecycle evidence**, not non-admin/UAC-policy
 acceptance.
 
-Before distribution, record actual **Windows 11 ARM64 and x64 desktops**:
+The following acceptance remains to be recorded on actual **Windows 11 ARM64
+and x64 desktops**; unsigned public release automation does not establish it:
 
 * Control Panel preview and owned settings, independent mixed-DPI monitors/
   hotplug, fullscreen input/deactivation, idle invocation, secure resume/lock/
@@ -229,7 +270,9 @@ Before distribution, record actual **Windows 11 ARM64 and x64 desktops**:
 * clean standard-user install, upgrade, repair and uninstall, preserving an
   alternative saver; open both CAB packs and verify clean wallpaper/colors;
 * sustained memory bounds and measured 60fps target on representative hardware;
-* verified Windows identity/timestamp and final signed package checksums.
+* if signed distribution is added in the future, verified Windows
+  identity/timestamp and final signed package checksums. Current public builds
+  instead disclose unsigned status and include final unsigned checksums.
 
 Cross-building on macOS, x64-on-ARM compilation, a PNG or Server runner is not
 evidence for these desktop/policy/performance/signing gates.

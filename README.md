@@ -2,17 +2,23 @@
 
 [![Latest release](https://img.shields.io/github/v/release/denmanjohn-maker/pickleball-screensaver)](https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest)
 
-A macOS screensaver that renders a stylized pickleball court with animated singles or doubles rallies and a scoreboard.
+A macOS and Windows 11 screensaver that renders a stylized pickleball court with animated singles or doubles rallies and a scoreboard.
 
-**Just want to install it?** Grab the signed, notarized installer from the
+**Just want to install it?** Choose your platform on the
 **[download page](https://denmanjohn-maker.github.io/pickleball-screensaver/)** —
-no build tools needed.
+no build tools needed. macOS downloads are signed and notarized.
 
 **Windows 11:** the same repository now contains a native ARM64/x64 .NET 10
-implementation, current-user MSI/portable ZIP packaging and two desktop CAB
-theme packs. Windows artifacts are validation candidates, **not yet promoted
-downloads**; existing macOS downloads are unchanged. See the
-[Windows guide](windows/README.md) for features, builds and desktop/signing gates.
+implementation. New shared version releases include **x64 and ARM64 MSI
+installers and portable ZIPs**, SHA-256 checksums, and optional Classic/Black
+Light desktop theme packs. Windows packages are **unsigned** and may trigger
+unknown-publisher or SmartScreen warnings; hosted checks do not certify final
+desktop, standard-user or performance acceptance. Select the architecture in
+**Settings → System → About → System type**; .NET is included.
+The first Windows downloads will appear with a new shared release, not as a
+replacement of the existing macOS-only `v1.6`.
+See the [Windows downloads](https://denmanjohn-maker.github.io/pickleball-screensaver/#windows-downloads)
+and [Windows guide](windows/README.md) for installation and acceptance details.
 
 The left rail of widget-style cards shows current weather with a "good day to play?" badge, nearby tournaments, and drill of the day. A separate clock and team-colored scoreboard sit below the court.
 
@@ -58,7 +64,7 @@ Check **Show nearby tournaments** in the same sheet to add a card listing upcomi
 
 Check **Show drill of the day** in the same sheet to add a card with one drill, picked deterministically so it stays the same all day and changes the next. Pick **All levels** or a DUPR tier (3.0–5.0) to filter which drills come up.
 
-## Build
+## Build on macOS
 
 ```sh
 make
@@ -91,9 +97,14 @@ recipients need to do.
 
 ## Releases
 
-Pushing a `vX.Y` tag builds, signs, notarizes, and publishes a GitHub Release
-automatically — see [DISTRIBUTING.md](DISTRIBUTING.md#cutting-a-release) for
-the release process and the one-time secrets setup. The
+Pushing a new `vX.Y` (or `vX.Y.Z`) tag builds both platforms and publishes one
+GitHub Release only after macOS and native Windows x64/ARM64 checks succeed.
+macOS packages are signed and notarized; Windows packages are unsigned.
+Manual **Release** action runs build either or both platforms and upload
+artifacts only, never a release. Windows-only dry runs need no Apple secrets.
+See [DISTRIBUTING.md](DISTRIBUTING.md#cutting-a-release) for synchronized version
+bumps, release assets and the one-time secrets setup. The
 [download page](https://denmanjohn-maker.github.io/pickleball-screensaver/) is
 served by GitHub Pages from [docs/](docs/) and always points at the latest
-release.
+release. Until Windows assets are published, its Windows links safely open
+the Releases listing. Existing macOS download URLs are unchanged.
