@@ -3,20 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pickleball Screensaver — Animated macOS Screensaver</title>
+<title>Pickleball Screensaver — Five Artistic Looks for Your Mac</title>
 <meta
   name="description"
-  content="A native macOS pickleball screensaver with an animated rally, live weather, nearby tournaments, and a drill of the day."
+  content="Turn pickleball rallies into art with five macOS screensaver appearances, singles or doubles, gentle court motion, weather, tournaments, and daily drills."
 >
 <meta name="theme-color" content="#07131a">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Pickleball Screensaver — Animated macOS Screensaver">
+<meta property="og:title" content="Pickleball Screensaver — Five Artistic Looks for Your Mac">
 <meta
   property="og:description"
-  content="An animated pickleball rally for your Mac, plus weather, tournaments, and a drill of the day."
+  content="Living Court ripples, Ink-and-paper watercolors, and Rally Painting join Classic and Black Light. Real rallies, five looks, and useful court-side widgets."
 >
 <meta property="og:url" content="https://denmanjohn-maker.github.io/pickleball-screensaver/">
-<meta property="og:image" content="https://denmanjohn-maker.github.io/pickleball-screensaver/screenshot.jpg">
+<meta property="og:image" content="https://denmanjohn-maker.github.io/pickleball-screensaver/screenshot-rally-painting.jpg">
+<meta property="og:image:alt" content="Rally Painting: cyan and coral shot paths layered on a dark pickleball court">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/png" href="icon.png">
 <style>
@@ -44,6 +45,10 @@
     -webkit-font-smoothing: antialiased;
   }
   a { color: inherit; }
+  a:focus-visible, button:focus-visible {
+    outline: 3px solid var(--lime);
+    outline-offset: 4px;
+  }
   .page { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
   .topnav {
     display: flex;
@@ -267,33 +272,53 @@
     border-radius: 22px;
     padding: 22px;
   }
-  .shot-stack {
-    position: relative;
+  .section-intro {
+    color: var(--text-dim);
+    max-width: 46rem;
+    margin: -12px 0 24px;
+  }
+  .appearance-picker {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+  [hidden] { display: none !important; }
+  .appearance-button {
+    font: inherit;
+    font-size: 0.92rem;
+    font-weight: 650;
+    cursor: pointer;
+    padding: 10px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-dim);
+  }
+  .appearance-button:hover { border-color: var(--cyan); color: var(--text); }
+  .appearance-button[aria-pressed="true"] {
+    background: var(--cyan);
+    border-color: var(--cyan);
+    color: var(--ink);
+  }
+  .shot-panel + .shot-panel { margin-top: 28px; }
+  .shot-panel a { display: block; border-radius: 16px; }
+  .shot-panel img {
+    display: block;
+    width: 100%;
+    height: auto;
     aspect-ratio: 16 / 9;
     border-radius: 16px;
-    overflow: hidden;
     border: 1px solid var(--border);
     background: #050d12;
   }
-  .shot-img {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .shot-blacklight { opacity: 0; animation: shotFade 12s ease-in-out infinite; }
-  .shot-caption {
-    position: relative;
-    height: 1.5em;
-    margin-top: 12px;
-    text-align: center;
-    font-size: 0.86rem;
+  .shot-panel figcaption { margin-top: 16px; }
+  .shot-panel h3 { font-size: 1.12rem; margin-bottom: 4px; }
+  .shot-panel p {
     color: var(--text-dim);
+    font-size: 0.96rem;
   }
-  .shot-caption .lbl { position: absolute; inset: 0; }
-  .lbl-classic { animation: lblFade 12s ease-in-out infinite; }
-  .lbl-blacklight { opacity: 0; animation: shotFade 12s ease-in-out infinite; }
+  .screens-note { color: var(--text-dim); font-size: 0.86rem; margin-top: 16px; }
 
   .step {
     background: transparent;
@@ -345,36 +370,10 @@
   }
   footer a:hover { text-decoration: underline; }
 
-  @keyframes shotFade {
-    0%, 37.5%    { opacity: 0; }
-    47.5%, 87.5% { opacity: 1; }
-    97.5%, 100%  { opacity: 0; }
-  }
-  @keyframes lblFade {
-    0%, 37.5%    { opacity: 1; }
-    47.5%, 87.5% { opacity: 0; }
-    97.5%, 100%  { opacity: 1; }
-  }
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
-    .shot-stack {
-      aspect-ratio: auto;
-      display: grid;
-      gap: 2px;
-    }
-    .shot-img {
-      position: static;
-      height: auto;
-      opacity: 1;
-      animation: none;
-    }
-    .shot-caption { height: auto; }
-    .shot-caption .lbl {
-      position: static;
-      opacity: 1;
-      animation: none;
-    }
-    .lbl-classic::after { content: " · "; }
+    .btn, .card { transition: none; }
+    .btn:hover, .card:hover { transform: none; }
   }
   @media (max-width: 860px) {
     header.hero { grid-template-columns: 1fr; }
@@ -388,6 +387,8 @@
     }
     .cta-row { flex-direction: column; align-items: stretch; }
     .btn { text-align: center; }
+    .shot-shell { padding: 14px; }
+    .appearance-button { flex: 1 1 auto; }
   }
 </style>
 </head>
@@ -396,6 +397,7 @@
   <nav class="topnav" aria-label="Site">
     <a class="nav-brand" href="index.html">PICKLEBALL SCREENSAVER</a>
     <div class="nav-links">
+      <a href="#screens-title">Appearances</a>
       <a href="https://github.com/denmanjohn-maker/pickleball-screensaver">GitHub</a>
       <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/releases">Releases</a>
       <a href="https://github.com/denmanjohn-maker/pickleball-screensaver/issues">Support</a>
@@ -405,11 +407,11 @@
   <header class="hero">
     <div class="hero-copy">
       <p class="eyebrow">macOS screensaver</p>
-      <h1>Pickleball on your Mac. Widgets included.</h1>
+      <h1>A real rally. A little work of art.</h1>
       <p class="tagline">
-        A native screensaver with an animated rally, live weather, nearby
-        tournaments, and a drill of the day — signed, notarized, and ready to
-        install.
+        Five ways to watch pickleball on your Mac — from a classic court to
+        watercolor paper and a painting made by the rally itself. Play singles
+        or doubles, with weather, tournaments, and daily drills alongside.
       </p>
       <div class="badges">
         <span class="badge"><span class="dot"></span>macOS 14+</span>
@@ -436,9 +438,9 @@
         <img class="ball" src="ball.png" alt="A pickleball trailing flames">
       </div>
       <div class="art-copy">
-        <strong>Built for actual pickleball degenerates.</strong>
-        Classic or black-light court. Singles or doubles. Weather, tournaments,
-        drills, and a live scoreboard, all rendered natively with CoreGraphics.
+        <strong>Same game. Five distinct looks.</strong>
+        Living Court, Ink-and-paper, and Rally Painting join Classic and Black
+        Light. Choose your appearance in Options — no accounts, no subscriptions.
       </div>
     </div>
   </header>
@@ -446,8 +448,8 @@
   <section aria-label="Mission">
     <div class="mission">
       No static wallpaper pretending to be a screensaver. This one runs a real
-      rally, rotates useful court-side widgets, and still stays lightweight
-      enough to feel native on your Mac.
+      rally: diagonal serves, the two-bounce rule, kitchen exchanges, and
+      side-out scoring. The artwork follows the game, not the other way around.
     </div>
   </section>
 
@@ -458,17 +460,32 @@
       <article class="card">
         <div class="icon">🏓</div>
         <h3>Animated rally</h3>
-        <p>A perspective court with serves, cross-court exchanges, net battles, and a live scoreboard.</p>
+        <p>Regulation service courts, the two-bounce rule, kitchen play, and side-out scoring on a perspective court with a live scoreboard.</p>
       </article>
       <article class="card">
         <div class="icon">👥</div>
         <h3>Singles or doubles</h3>
-        <p>Choose the match format in the options sheet and let the rally logic adapt to it.</p>
+        <p>Doubles favors cross-court dinks and hands battles. Singles opens up passing shots and deeper recovery. Cyan Team A and coral Team B stay easy to follow.</p>
       </article>
       <article class="card">
         <div class="icon">🌈</div>
-        <h3>Two visual themes</h3>
-        <p>Switch between the classic court look and a neon black-light mode with glow throughout.</p>
+        <h3>Five artistic appearances</h3>
+        <p>Classic, Black Light, Living Court, Ink-and-paper, or Rally Painting. Pick one look in Options; every appearance plays the same game.</p>
+      </article>
+      <article class="card">
+        <div class="icon" aria-hidden="true">◌</div>
+        <h3>Artwork driven by play</h3>
+        <p>Live bounces make ripples. Paddle contacts make halos. Team-colored shot paths build a painting that gently dissolves at game end.</p>
+      </article>
+      <article class="card">
+        <div class="icon" aria-hidden="true">↻</div>
+        <h3>Motion at your pace</h3>
+        <p>A slow 12-second turn each minute, the original 6-second spin, or no spin. macOS Reduce motion disables court spins and ambient effects.</p>
+      </article>
+      <article class="card">
+        <div class="icon" aria-hidden="true">↑</div>
+        <h3>A camera that follows the rally</h3>
+        <p>The view gently eases back for high lobs. Court markings, shot trails, and team identities stay coherent as the scene rotates.</p>
       </article>
       <article class="card">
         <div class="icon">☁️</div>
@@ -490,16 +507,52 @@
 
   <section aria-labelledby="screens-title">
     <div class="section-kicker">Screens</div>
-    <h2 id="screens-title">Classic and black-light, same rally moment</h2>
+    <h2 id="screens-title">Find your court-side mood</h2>
+    <p class="section-intro">
+      Choose one appearance in System Settings → Screen Saver → Options….
+      These are actual renders from the screensaver, not mockups.
+    </p>
     <div class="shot-shell">
-      <div class="shot-stack">
-        <img class="shot-img shot-classic" src="screenshot-classic.jpg" alt="The classic screensaver theme showing a pickleball rally, a scoreboard, weather, tournaments, and drill widgets" width="1280" height="720">
-        <img class="shot-img shot-blacklight" src="screenshot.jpg" alt="The black-light screensaver theme with the same rally in neon colors on a dark background" width="1280" height="720">
+      <div class="appearance-picker" role="group" aria-label="Preview an appearance" hidden>
+        <button class="appearance-button" type="button" aria-pressed="true" aria-controls="appearance-classic">Classic</button>
+        <button class="appearance-button" type="button" aria-pressed="false" aria-controls="appearance-blacklight">Black Light</button>
+        <button class="appearance-button" type="button" aria-pressed="false" aria-controls="appearance-living-court">Living Court</button>
+        <button class="appearance-button" type="button" aria-pressed="false" aria-controls="appearance-ink-and-paper">Ink-and-paper</button>
+        <button class="appearance-button" type="button" aria-pressed="false" aria-controls="appearance-rally-painting">Rally Painting</button>
       </div>
-      <div class="shot-caption">
-        <span class="lbl lbl-classic">Classic theme</span>
-        <span class="lbl lbl-blacklight">Black-light theme</span>
+      <div class="appearance-panels" aria-live="polite">
+        <figure class="shot-panel" id="appearance-classic">
+          <a href="screenshot-classic.jpg" aria-label="Open the full-size Classic screenshot">
+            <img src="screenshot-classic.jpg" alt="Classic green and blue court with cyan and coral doubles paddles, a team scoreboard, clock, and daily drill card" width="1280" height="720" decoding="async">
+          </a>
+          <figcaption><h3>Classic</h3><p>The familiar green-and-blue court, a yellow ball, and quiet pickleball wallpaper. Your original look is still here.</p></figcaption>
+        </figure>
+        <figure class="shot-panel" id="appearance-blacklight">
+          <a href="screenshot.jpg" aria-label="Open the full-size Black Light screenshot">
+            <img src="screenshot.jpg" alt="The same doubles rally with fluorescent green court lines, a pink net and coral-pink team accents on black" width="1280" height="720" loading="lazy" decoding="async">
+          </a>
+          <figcaption><h3>Black Light</h3><p>Neon lines, fluorescent equipment, and a pink ball trail against black. A brighter take on the same rally.</p></figcaption>
+        </figure>
+        <figure class="shot-panel" id="appearance-living-court">
+          <a href="screenshot-living-court.jpg" aria-label="Open the full-size Living Court screenshot">
+            <img src="screenshot-living-court.jpg" alt="Classic court with soft concentric ripples at a live ball bounce during a doubles rally" width="1280" height="720" loading="lazy" decoding="async">
+          </a>
+          <figcaption><h3>Living Court</h3><p>Soft ripples spread from live ball bounces, while paddle contacts leave brief team-colored halos. A subtle, reactive layer over Classic.</p></figcaption>
+        </figure>
+        <figure class="shot-panel" id="appearance-ink-and-paper">
+          <a href="screenshot-ink-and-paper.jpg" aria-label="Open the full-size Ink-and-paper screenshot">
+            <img src="screenshot-ink-and-paper.jpg" alt="Warm off-white paper with watercolor service boxes, charcoal court lines, an ink-like ball trail, and teal and coral paddles" width="1280" height="720" loading="lazy" decoding="async">
+          </a>
+          <figcaption><h3>Ink-and-paper</h3><p>Warm paper grain, watercolor washes, charcoal lines, and an ink-like trail. Stable textures keep the sketchbook look calm, not jittery.</p></figcaption>
+        </figure>
+        <figure class="shot-panel" id="appearance-rally-painting">
+          <a href="screenshot-rally-painting.jpg" aria-label="Open the full-size Rally Painting screenshot">
+            <img src="screenshot-rally-painting.jpg" alt="A dark pickleball court covered in translucent cyan and coral brushstrokes tracing shots from several rallies" width="1280" height="720" loading="lazy" decoding="async">
+          </a>
+          <figcaption><h3>Rally Painting</h3><p>Every shot adds a translucent team-colored brushstroke. The painting builds across rallies, dissolves when a game ends, and fades older strokes during long games.</p></figcaption>
+        </figure>
       </div>
+      <p class="screens-note">Click any screenshot for full size. The first four show the same rally moment; Rally Painting shows about 100 seconds of accumulated play. Captured with no-spin framing. Weather and tournament cards are optional and are not shown in these previews.</p>
     </div>
   </section>
 
@@ -515,12 +568,12 @@
       <div class="step">
         <strong>Step 02</strong>
         <h3>Let macOS install it</h3>
-        <p>The package installs for all users, so System Settings will ask for your password.</p>
+        <p>The package installs for all users, so the macOS installer will ask for your administrator password.</p>
       </div>
       <div class="step">
         <strong>Step 03</strong>
-        <h3>Turn on the widgets you want</h3>
-        <p>Open System Settings → Screen Saver → PickleballScreensaver → Options… to choose format, theme, and widgets.</p>
+        <h3>Make it your court</h3>
+        <p>Open System Settings → Screen Saver → PickleballScreensaver → Options… to choose Appearance, Singles or Doubles, court motion, and widgets. Click OK to save.</p>
       </div>
     </div>
   </section>
@@ -558,6 +611,23 @@
 </div>
 
 <script>
+  const appearanceButtons = document.querySelectorAll(".appearance-button");
+  const appearancePanels = document.querySelectorAll(".shot-panel");
+  function selectAppearance(button) {
+    const selectedID = button.getAttribute("aria-controls");
+    appearanceButtons.forEach(function (item) {
+      item.setAttribute("aria-pressed", String(item === button));
+    });
+    appearancePanels.forEach(function (panel) {
+      panel.hidden = panel.id !== selectedID;
+    });
+  }
+  appearanceButtons.forEach(function (button) {
+    button.addEventListener("click", function () { selectAppearance(button); });
+  });
+  selectAppearance(appearanceButtons[0]);
+  document.querySelector(".appearance-picker").hidden = false;
+
   fetch("https://api.github.com/repos/denmanjohn-maker/pickleball-screensaver/releases/latest")
     .then(function (response) {
       return response.ok ? response.json() : null;

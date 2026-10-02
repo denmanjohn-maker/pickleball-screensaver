@@ -12,8 +12,10 @@ make test               # deterministic engine and projection regression checks
 ```
 
 The project uses `swiftc` directly via Makefile. `scripts/tests/run.sh` builds
-and runs the regression executables; pass `--engine-only`, `--camera-only`, `--art-only`, or `--preview-only`
-for a focused check.
+and runs the regression executables; pass `--engine-only`, `--camera-only`,
+`--art-only`, `--preview-only`, `--release-only`, or `--website-only` for a
+focused check. Website checks exercise the appearance gallery in WebKit at
+desktop/mobile sizes and with page JavaScript disabled.
 
 `assets/icon/generate.sh` regenerates `AppIcon.icns`, the System Settings thumbnails, and `docs/icon.png` (the download-page favicon) from the SVG sources in `assets/icon/`. Edit the SVGs, not the PNGs/icns — the rasterized files are derived. macOS only (swiftc + iconutil).
 
@@ -55,7 +57,13 @@ is checked against the actual integer display-step count, including fractional
 durations. Simulation tunables
 are forwarded from the view to `RallyEngine`.
 
-`scripts/preview/theme-shots.sh` wraps the harness to regenerate the download page's two hero screenshots. It renders the same seed twice — once `--classic`, once `--blacklight` — and pulls the same frame index from each, so the two images are the same rally moment in both themes and line up under the page's cross-fade. macOS only (needs `swiftc` and `sips`).
+`scripts/preview/theme-shots.sh` regenerates the download page's five appearance
+screenshots. Classic, Black Light, Living Court, and Ink-and-paper use the same
+seed and frame; Rally Painting uses a later frame to show accumulated artwork.
+All use no-spin framing. Defaults are seed 42, frame 210 (about 7 seconds),
+and painting frame 3000 (about 100 seconds). Override with `--seed N`,
+`--frame N`, `--painting-frame N`, or `--singles` / `--doubles`.
+macOS only (needs `swiftc` and `sips`).
 
 ## Architecture
 

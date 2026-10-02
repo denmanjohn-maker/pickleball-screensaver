@@ -3,6 +3,16 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+if [[ $# == 0 || "${1:-}" == --website-only ]]; then
+  swiftc -sdk "$(xcrun --show-sdk-path)" -target "$(uname -m)-apple-macos14.0" \
+    -framework Cocoa -framework WebKit scripts/tests/website/main.swift -o "$work/website"
+  "$work/website"
+  "$work/website" --mobile
+  "$work/website" --no-script
+  if [[ "${1:-}" == --website-only ]]; then
+    exit
+  fi
+fi
 if [[ $# == 0 || "${1:-}" == --release-only ]]; then
   bash scripts/tests/release.sh
   if [[ "${1:-}" == --release-only ]]; then
