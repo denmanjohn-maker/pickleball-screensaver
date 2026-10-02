@@ -35,9 +35,12 @@ PKG_INSTALL_DIR = /Library/Screen Savers
 # e.g. make pkg INSTALLER_SIGN_ID="Developer ID Installer: Your Name (TEAMID)"
 INSTALLER_SIGN_ID ?=
 
-.PHONY: all clean install uninstall dist pkg dmg
+.PHONY: all clean install uninstall dist pkg dmg test
 
 all: $(BUNDLE)
+
+test:
+	bash scripts/tests/run.sh
 
 $(BUILD_DIR)/%/PickleballScreensaver: $(SOURCES)
 	@mkdir -p $(dir $@)

@@ -20,15 +20,53 @@
 //   --force-speedup / --force-lob / --lefty   force those behaviors
 //   --no-runaround time-rich backhands are never run around for a forehand
 //   --clean        rallies end on winners only (no scripted errors)
+//   --size=WxH     render at a different size (default 1280x720)
+//   --motion=slow|standard|still  override saved court motion
+//   --yaw=N        hold the camera at N degrees for an occlusion snapshot
+//   --frame=N      write only the Nth sampled frame
+//   --sample-every=N  write every Nth simulation step (default every 2 at 60 fps)
+//   --fps=N        simulation/display cadence (default 60; engine stays at 120 Hz)
 import AppKit
 
 let args = CommandLine.arguments
+func usageError(_ message: String) -> Never {
+    fputs("preview: \(message)\n", stderr)
+    exit(2)
+}
+func flagValue(_ name: String) -> String? {
+    args.first(where: { $0.hasPrefix("--\(name)=") }).map { String($0.dropFirst(name.count + 3)) }
+}
+func positiveInt(_ name: String, fallback: Int) -> Int {
+    guard let value = flagValue(name) else { return fallback }
+    guard let number = Int(value), number > 0 else { fatalError("bad --\(name)=\(value)") }
+    return number
+}
 let positional = args.dropFirst().filter { !$0.hasPrefix("--") }
 let outDir = positional.count > 0 ? positional[positional.startIndex] : "/tmp/pbpreview-frames"
 let seconds = positional.count > 1 ? Double(positional[positional.index(positional.startIndex, offsetBy: 1)]) ?? 10 : 10
 let startClock = positional.count > 2 ? Double(positional[positional.index(positional.startIndex, offsetBy: 2)]) ?? 90 : 90
+guard seconds.isFinite, seconds > 0, startClock.isFinite, startClock >= 0 else {
+    fatalError("seconds must be positive and startClock must be nonnegative")
+}
 let simOnly = args.contains("--sim-only")
 let wantStats = args.contains("--stats")
+let fps = positiveInt("fps", fallback: 60)
+guard (4...240).contains(fps) else { fatalError("--fps must be between 4 and 240") }
+guard let frames = Int(exactly: (seconds * Double(fps)).rounded(.towardZero)), frames > 0 else {
+    usageError("duration must contain at least one display step and fit an integer step count")
+}
+let sampleEvery = positiveInt("sample-every", fallback: max(1, fps / 30))
+let size = (flagValue("size") ?? "1280x720").split(separator: "x")
+guard size.count == 2, let width = Int(size[0]), let height = Int(size[1]), width > 0, height > 0 else {
+    fatalError("--size must be positive WIDTHxHEIGHT")
+}
+var selectedFrame: Int?
+if let value = flagValue("frame") {
+    guard let frame = Int(value), frame >= 0, frame <= (frames - 1) / sampleEvery else {
+        usageError("--frame must identify a sampled frame within the requested duration")
+    }
+    selectedFrame = frame
+}
 
 let outURL = URL(fileURLWithPath: outDir, isDirectory: true)
 if !simOnly {
@@ -39,7 +77,7 @@ if !simOnly {
     }
 }
 
-guard let view = PickleballScreensaverView(frame: NSRect(x: 0, y: 0, width: 1280, height: 720),
+guard let view = PickleballScreensaverView(frame: NSRect(x: 0, y: 0, width: width, height: height),
                                            isPreview: true) else {
     fatalError("failed to create PickleballScreensaverView")
 }
@@ -54,6 +92,14 @@ if args.contains("--force-lob")     { view.lobProb = 1.0 }
 if args.contains("--no-runaround")  { view.runAroundProb = 0.0 }
 if args.contains("--blacklight")    { view.applyTheme(.blacklight) }
 if args.contains("--classic")       { view.applyTheme(.classic) }   // override a saved theme
+if let value = flagValue("motion") {
+    guard let motion = CourtMotion(rawValue: value) else { fatalError("bad --motion=\(value)") }
+    view.courtMotion = motion
+}
+if let value = flagValue("yaw") {
+    guard let yaw = Double(value), yaw.isFinite else { fatalError("bad --yaw=\(value)") }
+    view.previewYaw = CGFloat(yaw) * .pi / 180
+}
 
 // Aggregates accumulated from the engine's stats lines
 var rallyLengths: [Int] = []
@@ -94,17 +140,18 @@ for a in args where a.hasPrefix("--seed=") {
 if !seeded && args.contains("--lefty") {
     view.reseed(UInt64.random(in: .min ... .max))
 }
+if seeded { view.ambientEnabled = false }
 
-let fps = 60.0
-let frames = Int(seconds * fps)
 var now = startClock
 var written = 0
 let space = CGColorSpace(name: CGColorSpace.sRGB)!
 for i in 0..<frames {
-    now += 1.0 / fps
-    view.step(now: now, dt: CGFloat(1.0 / fps))
-    guard !simOnly, i % 2 == 0 else { continue }   // save at 30 png/s
-    guard let ctx = CGContext(data: nil, width: 1280, height: 720, bitsPerComponent: 8,
+    now += 1.0 / Double(fps)
+    if seeded { view.previewDate = Date(timeIntervalSince1970: 1_791_014_400 + now) }
+    view.step(now: now, dt: 1 / CGFloat(fps))
+    guard !simOnly, i % sampleEvery == 0,
+          selectedFrame == nil || selectedFrame == i / sampleEvery else { continue }
+    guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
                               bytesPerRow: 0, space: space,
                               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
         fatalError("failed to create bitmap context")
@@ -116,7 +163,7 @@ for i in 0..<frames {
           let png = NSBitmapImageRep(cgImage: img).representation(using: .png, properties: [:]) else {
         fatalError("failed to encode frame \(i)")
     }
-    let frameURL = outURL.appendingPathComponent(String(format: "frame_%05d.png", written))
+    let frameURL = outURL.appendingPathComponent(String(format: "frame_%05d.png", i / sampleEvery))
     do {
         try png.write(to: frameURL)
     } catch {

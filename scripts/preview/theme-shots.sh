@@ -48,7 +48,8 @@ swiftc -sdk "$(xcrun --show-sdk-path)" -target "$(uname -m)-apple-macos14.0" \
 shoot() {   # shoot <theme-flag> <out-jpg>
   local theme=$1 out=$2 dir="$work/${1#--}"
   echo "rendering $theme (seed=$SEED $FORMAT)..."
-  "$work/pbpreview" "$dir" "$SECONDS_RUN" "$CLOCK" "--seed=$SEED" "$FORMAT" "$theme" >/dev/null
+  "$work/pbpreview" "$dir" "$SECONDS_RUN" "$CLOCK" "--seed=$SEED" "$FORMAT" "$theme" \
+    --motion=slow "--frame=$FRAME" >/dev/null
   local src
   src=$(printf '%s/frame_%05d.png' "$dir" "$FRAME")
   [ -f "$src" ] || { echo "frame $FRAME not rendered; lower --frame or raise SECONDS_RUN" >&2; exit 1; }

@@ -8,9 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 make                    # build PickleballScreensaver.saver
 make install            # install to ~/Library/Screen Savers
 make clean              # remove the build artifact
+make test               # deterministic engine and projection regression checks
 ```
 
-The project uses `swiftc` directly via Makefile — there is no Xcode build scheme or test suite.
+The project uses `swiftc` directly via Makefile. `scripts/tests/run.sh` builds
+and runs the regression executables; pass `--engine-only`, `--camera-only`, or `--preview-only`
+for a focused check.
 
 `assets/icon/generate.sh` regenerates `AppIcon.icns`, the System Settings thumbnails, and `docs/icon.png` (the download-page favicon) from the SVG sources in `assets/icon/`. Edit the SVGs, not the PNGs/icns — the rasterized files are derived. macOS only (swiftc + iconutil).
 
@@ -36,8 +39,19 @@ swiftc -sdk "$(xcrun --show-sdk-path)" -target "$(uname -m)-apple-macos14.0" \
 - `--force-speedup` / `--force-lob` / `--lefty` — force those behaviors
 - `--no-runaround` — time-rich backhands are never run around for a forehand
 - `--clean` — rallies end on winners only (no scripted errors)
+- `--size=WxH` — override the 1280x720 render size
+- `--motion=slow|standard|still` — override saved court motion
+- `--yaw=N` — hold the scene at N degrees for an occlusion snapshot
+- `--frame=N` — write only sampled frame N
+- `--sample-every=N` — write every Nth display step (default 2 at 60 fps)
+- `--fps=N` — display cadence, 4–240 fps; the simulation always runs at 120 Hz
 
-All flags map to `var` tunables on the view, forwarded to `RallyEngine`.
+Seeded previews disable ambient ghosts and use a fixed date, UTC time zone,
+Gregorian calendar, and `en_US_POSIX` locale for the clock and daily drill,
+making repeated screenshots reproducible across locale settings. Frame selection
+is checked against the actual integer display-step count, including fractional
+durations. Simulation tunables
+are forwarded from the view to `RallyEngine`.
 
 `scripts/preview/theme-shots.sh` wraps the harness to regenerate the download page's two hero screenshots. It renders the same seed twice — once `--classic`, once `--blacklight` — and pulls the same frame index from each, so the two images are the same rally moment in both themes and line up under the page's cross-fade. macOS only (needs `swiftc` and `sips`).
 
@@ -47,11 +61,28 @@ All flags map to `var` tunables on the view, forwarded to `RallyEngine`.
 
 The `.saver` bundle is a shared library loaded by the system screen-saver process. Its entry point is `PickleballScreensaverView.swift` (an `NSView` subclass), which owns the animation loop, camera/projection, and all drawing.
 
-**Simulation** — `RallyEngine.swift` owns the ball, the players (2 in singles, 4 in doubles), and the full rally lifecycle: diagonal serve into the correct box, two-bounce rule, third-shot drop/drive, kitchen dinking (~80% cross-court), speed-ups into hands battles, lobs, and side-out scoring (doubles uses the three-number call with both partners serving). Players move at human speeds with reaction delays and noisy ball reads, so forehands and backhands both occur (stance follows the paddle-hip rule; ~1 in 6 players is left-handed). Each rally's length and ending are sampled at serve time from pro-match distributions; non-terminal shots are aimed reachable by construction. Ball flight uses a landing-constrained solver (arc → speed), so dinks float at ~8 mph while drives fly at ~30+. The view calls `engine.step(dt:)` once per frame and only reads state.
+**Simulation** — `RallyEngine.swift` owns the ball, players, rally lifecycle,
+and side-out score. Doubles favors cross-court dinks and hands battles; singles
+uses passing shots and deeper recovery. Service turns begin on the correct
+court, kitchen volleys and follow-through are constrained, and contacts share
+an exact ball/paddle pose. Rally scripts shape reachable shots but do not
+disable defenders to force winners. Error flights are re-solved to actual
+net/wide/long outcomes, and receivers leave clearly outgoing balls.
+`step(dt:)` accepts 0–0.25 seconds and accumulates fixed 120 Hz substeps.
+Floor crossings use analytic flight times. Read-only `lastContact`,
+`contactCount`, and per-display-step `frameEvents` expose exact impacts and
+live floor bounces without parsing logs.
 
 **Rendering** — all drawing is done with CoreGraphics in `drawRect`. The view renders a perspective-projected pickleball court with animated paddles, a scoreboard, and a left-rail widget stack. All colors route through `Theme.swift` (`classic` or `blacklight` — pure black with neon green/pink/orange and a group-glow pass); the theme and game format are chosen in the Options sheet (`ThemeSettings` / `MatchSettings`, keys `Theme` / `GameFormat`).
 
-**Widget rail** — the left rail shows cards for clock, weather, tournaments, and drill of the day. Each card is toggled from the Options sheet and drawn each frame from a cached snapshot.
+Framing is cached for the whole rotation envelope; sprites and trails are
+layered relative to the camera's side of the net. Team colors are stable
+across rotations. `MotionSettings` persists `CourtMotion` (`slow`, `standard`,
+or `still`) and the view also honors macOS Reduce motion. Animation dt uses
+system uptime; wall-clock time only schedules the minute-boundary spin.
+High lobs use a flight-aware, eased zoom; Reduce motion uses fixed extra headroom.
+
+**Widget rail** — the left rail shows weather, tournaments, and drill of the day. Each card is toggled from the Options sheet and drawn each frame from a cached snapshot. The clock and stable Team A/Team B score sit below the court.
 
 **Providers** — two provider classes are called from `animateOneFrame`. They self-throttle using a `nextFetch: TimeInterval` sentinel so they never block the render loop:
 - `WeatherProvider` — fetches Open-Meteo every 30 min (2 min retry). No API key.
