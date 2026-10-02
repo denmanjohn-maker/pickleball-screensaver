@@ -9,6 +9,8 @@ import re
 import struct
 import subprocess
 import zipfile
+import shutil
+from audit_themes import audit as audit_themes
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / "src/Pickleball.Windows/Pickleball.Windows.csproj"
@@ -66,12 +68,18 @@ def main():
     parser.add_argument("--rid", required=True, choices=MACHINES)
     parser.add_argument("--dotnet", default="dotnet")
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts")
+    parser.add_argument("--themes", type=Path, default=ROOT / "artifacts/themes",
+                        help="Generated shared CABs; both are included in complete portable ZIPs")
     parser.add_argument("--sign", action="store_true", help="Windows only; explicitly configured Authenticode identity")
     args = parser.parse_args()
     output = args.output.resolve()
     # All project commands and outputs stay in this checkout.
     if not output.is_relative_to(ROOT):
         parser.error("--output must be beneath windows/ in this worktree")
+    themes = args.themes.resolve()
+    if not themes.is_relative_to(ROOT):
+        parser.error("--themes must be beneath windows/ in this worktree")
+    audit_themes(themes)
     version = subprocess.check_output(
         [args.dotnet, "msbuild", str(PROJECT), "-getProperty:Version"], cwd=ROOT, text=True).strip()
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?", version):
@@ -97,10 +105,15 @@ def main():
             "No registration or system policy changes are performed. No .NET install is needed.\n"
             "No arguments or /c: configure; /p HWND: offline embedded preview; /s: fullscreen.\n"
             "Keep ALL files together. Single-file native dependencies extract to the .NET user cache.\n"
+            "Both clean theme CABs are included. Maintain.ps1 -Action Classic/Blacklight imports them only when explicitly requested.\n"
             "Windows 11 native runtime acceptance is required before distribution.\n", encoding="utf-8")
         for script in ("Maintain.ps1",):
-            import shutil
             shutil.copyfile(ROOT / "packaging" / script, directory / script)
+        for label in ("Classic", "BlackLight"):
+            cabinet = themes / f"Pickleball-{label}.deskthemepack"
+            shutil.copyfile(cabinet, directory / cabinet.name)
+            digest = hashlib.sha256(cabinet.read_bytes()).hexdigest()
+            (directory / (cabinet.name + ".sha256")).write_text(f"{digest}  {cabinet.name}\n", encoding="ascii")
         if args.sign:
             subprocess.run(["powershell", "-NoProfile", "-File", str(ROOT / "packaging/sign.ps1"),
                             "-Path", str(directory / "PickleballScreensaver.scr")], check=True)
