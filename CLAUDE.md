@@ -12,7 +12,7 @@ make test               # deterministic engine and projection regression checks
 ```
 
 The project uses `swiftc` directly via Makefile. `scripts/tests/run.sh` builds
-and runs the regression executables; pass `--engine-only`, `--camera-only`, or `--preview-only`
+and runs the regression executables; pass `--engine-only`, `--camera-only`, `--art-only`, or `--preview-only`
 for a focused check.
 
 `assets/icon/generate.sh` regenerates `AppIcon.icns`, the System Settings thumbnails, and `docs/icon.png` (the download-page favicon) from the SVG sources in `assets/icon/`. Edit the SVGs, not the PNGs/icns — the rasterized files are derived. macOS only (swiftc + iconutil).
@@ -35,6 +35,8 @@ swiftc -sdk "$(xcrun --show-sdk-path)" -target "$(uname -m)-apple-macos14.0" \
 - `--sim-only` — run the simulation without rendering; use long durations (600+) with `--stats` for distribution checks
 - `--singles` / `--doubles` — force the game format
 - `--blacklight` — force the neon-on-black theme
+- `--appearance=classic|blacklight|living-court|ink-and-paper|rally-painting` —
+  override saved Appearance; `--classic` and `--blacklight` remain supported
 - `--force-drop` / `--force-drive` — every third shot is a drop / drive
 - `--force-speedup` / `--force-lob` / `--lefty` — force those behaviors
 - `--no-runaround` — time-rich backhands are never run around for a forehand
@@ -73,7 +75,22 @@ Floor crossings use analytic flight times. Read-only `lastContact`,
 `contactCount`, and per-display-step `frameEvents` expose exact impacts and
 live floor bounces without parsing logs.
 
-**Rendering** — all drawing is done with CoreGraphics in `drawRect`. The view renders a perspective-projected pickleball court with animated paddles, a scoreboard, and a left-rail widget stack. All colors route through `Theme.swift` (`classic` or `blacklight` — pure black with neon green/pink/orange and a group-glow pass); the theme and game format are chosen in the Options sheet (`ThemeSettings` / `MatchSettings`, keys `Theme` / `GameFormat`).
+**Rendering** — all drawing is done with CoreGraphics in `drawRect`. The view
+renders a perspective-projected pickleball court with animated paddles, a
+scoreboard, and a left-rail widget stack. `AppearancePreset.swift` defines the
+five mutually exclusive looks and their `Theme` palettes. The Appearance and
+game format are chosen in Options (`ThemeSettings` / `MatchSettings`, existing
+keys `Theme` / `GameFormat`).
+
+**Artwork** — `ArtEffects.swift` owns bounded ripple/halo lifetimes and
+court-space brushstrokes. The view adapts the engine's ordered `frameEvents`
+once after each step; drawing never advances artwork or gameplay. Living Court
+uses exact live bounce/contact positions. Rally Painting retains strokes across
+rallies, dissolves a finished game over two seconds, and caps history at 96
+strokes of 128 points. Projection-keyed path caches follow resize and rotation.
+`ArtTextures.swift` supplies deterministic paper grain, court-space watercolor
+washes/fibers, and the ink trail. Its noise is independent of simulation
+randomness. Appearance changes, reseeds, and format changes reset visual history.
 
 Framing is cached for the whole rotation envelope; sprites and trails are
 layered relative to the camera's side of the net. Team colors are stable

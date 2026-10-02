@@ -19,6 +19,7 @@ expect_invalid "--frame must identify" 0.625 90 --fps=4 --sample-every=2 --frame
 expect_invalid "--frame must identify" 0.625 90 --fps=4 --sample-every=2 --frame=9223372036854775807
 expect_invalid "duration must contain" 0.1 90 --fps=4 --frame=0
 expect_invalid "duration must contain" 1e308 90 --fps=4 --frame=0
+expect_invalid "unknown --appearance" 1 90 --appearance=invalid
 
 flags=(--fps=4 --sample-every=1 --seed=42 --classic --doubles --motion=still --size=320x180)
 "$preview" "$work/first" 0.375 0 "${flags[@]}" --frame=0
@@ -38,6 +39,19 @@ TZ=Asia/Tokyo "$preview" "$work/japanese" 0.25 0 "${flags[@]}" --frame=0 \
 for profile in buddhist japanese; do
   if ! cmp "$work/utc/frame_00000.png" "$work/$profile/frame_00000.png"; then
     echo "FAIL: seeded preview changed across locale, calendar, or time zone" >&2
+    exit 1
+  fi
+done
+for appearance in classic blacklight living-court ink-and-paper rally-painting; do
+  "$preview" "$work/$appearance" 8 55 --seed=42 --appearance="$appearance" \
+    --motion=standard --size=320x180 --sample-every=60 --frame=7
+  "$preview" "$work/$appearance-repeat" 8 55 --seed=42 --appearance="$appearance" \
+    --motion=standard --size=320x180 --sample-every=60 --frame=7
+  cmp "$work/$appearance/frame_00007.png" "$work/$appearance-repeat/frame_00007.png"
+done
+for appearance in blacklight living-court ink-and-paper rally-painting; do
+  if cmp -s "$work/classic/frame_00007.png" "$work/$appearance/frame_00007.png"; then
+    echo "FAIL: $appearance has no visible appearance change" >&2
     exit 1
   fi
 done

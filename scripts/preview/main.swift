@@ -15,7 +15,8 @@
 //   --stats        print per-shot log lines and end-of-run aggregates
 //   --sim-only     run the simulation without rendering (fast; for distributions)
 //   --singles / --doubles        force the game format
-//   --blacklight / --classic     force the theme (overrides saved settings)
+//   --appearance=NAME  classic|blacklight|living-court|ink-and-paper|rally-painting
+//   --blacklight / --classic     legacy appearance overrides
 //   --force-drop / --force-drive every third shot is a drop / drive
 //   --force-speedup / --force-lob / --lefty   force those behaviors
 //   --no-runaround time-rich backhands are never run around for a forehand
@@ -90,8 +91,12 @@ if args.contains("--lefty")         { view.leftyProb = 1.0 }
 if args.contains("--force-speedup") { view.speedupProbPerDink = 1.0 }
 if args.contains("--force-lob")     { view.lobProb = 1.0 }
 if args.contains("--no-runaround")  { view.runAroundProb = 0.0 }
-if args.contains("--blacklight")    { view.applyTheme(.blacklight) }
-if args.contains("--classic")       { view.applyTheme(.classic) }   // override a saved theme
+if args.contains("--blacklight")    { view.applyAppearance(.blacklight) }
+if args.contains("--classic")       { view.applyAppearance(.classic) }
+if let value = flagValue("appearance") {
+    guard let preset = AppearancePreset(rawValue: value) else { usageError("unknown --appearance=\(value)") }
+    view.applyAppearance(preset)
+}
 if let value = flagValue("motion") {
     guard let motion = CourtMotion(rawValue: value) else { fatalError("bad --motion=\(value)") }
     view.courtMotion = motion

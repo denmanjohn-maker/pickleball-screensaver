@@ -101,7 +101,7 @@ struct Theme {
     )
 
     static func named(_ name: String) -> Theme {
-        name == "blacklight" ? .blacklight : .classic
+        (AppearancePreset(rawValue: name) ?? .classic).theme
     }
 
     func teamColor(facing: CGFloat) -> NSColor {
@@ -140,20 +140,25 @@ struct MotionSettings {
 struct ThemeSettings {
     var theme = "classic"
 
+    var appearance: AppearancePreset {
+        get { AppearancePreset(rawValue: theme) ?? .classic }
+        set { theme = newValue.rawValue }
+    }
+
     private static let moduleName = "com.pickleball.screensaver"
     private static var defaults: ScreenSaverDefaults? {
         ScreenSaverDefaults(forModuleWithName: moduleName)
     }
 
-    static func load() -> ThemeSettings {
+    static func load(from defaults: UserDefaults? = Self.defaults) -> ThemeSettings {
         var s = ThemeSettings()
         guard let d = defaults else { return s }
         s.theme = d.string(forKey: "Theme") ?? "classic"
         return s
     }
 
-    func save() {
-        guard let d = Self.defaults else { return }
+    func save(to defaults: UserDefaults? = Self.defaults) {
+        guard let d = defaults else { return }
         d.set(theme, forKey: "Theme")
         d.synchronize()
     }

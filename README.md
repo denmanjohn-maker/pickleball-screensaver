@@ -12,9 +12,21 @@ The left rail of widget-style cards shows current weather with a "good day to pl
 
 ## Court and game options
 
-Choose **Classic** or **Black Light**, and **Singles** or **Doubles**, in
-**Options…**. Team A uses cyan paddles; Team B uses coral in Classic and pink
-in Black Light. Those identities stay fixed on the scoreboard as the camera rotates.
+Choose one of five **Appearance** presets, and **Singles** or **Doubles**, in
+**Options…**. Existing Classic and Black Light selections are preserved.
+
+| Appearance | Look |
+|---|---|
+| Classic | The original green/blue court and muted wallpaper. |
+| Black Light | Neon court lines and fluorescent equipment on black. |
+| Living Court | Classic colors with gentle ripples at live ball bounces and brief halos at paddle contact. |
+| Ink-and-paper | Warm textured paper, watercolor court washes, charcoal lines, and an ink-like ball trail. |
+| Rally Painting | Team-colored brushstrokes build up on a dark court across rallies, then gently dissolve when a game ends. Older strokes fade out during long games to keep the artwork bounded. |
+
+These are mutually exclusive presets, not stacked effects. All use the same
+game mechanics and physics. Team A uses cyan paddles; Team B uses coral, or pink
+in Black Light, with deeper ink shades on paper. Those identities stay fixed
+on the scoreboard as the camera rotates.
 
 **Court motion** offers a slow 12-second turn each minute (the default), the
 original 6-second turn, or no spin. macOS **Reduce motion** disables court
@@ -57,7 +69,9 @@ make test
 These cover service rotations, kitchen legality, paddle contact, exact bounce
 locations, shot-speed and ending distributions, frame-rate independence,
 forced shot behaviors, camera framing throughout a full rotation, fractional
-preview-frame bounds, and seeded screenshots across locale/calendar/time-zone settings.
+preview-frame bounds, seeded screenshots across locale/calendar/time-zone settings,
+appearance persistence, artwork lifecycles and storage limits, and identical
+seeded gameplay across appearances.
 
 To install it for the current user:
 
