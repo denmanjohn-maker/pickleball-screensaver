@@ -44,6 +44,18 @@ final class WebsiteCheck: NSObject, WKNavigationDelegate {
                     assert(buttons.every((b, i) => b.textContent === names[i]), "Incorrect appearance labels");
                     assert(new Set(panels.map(p => p.id)).size === 5, "Duplicate panel IDs");
                     assert(document.documentElement.scrollWidth <= window.innerWidth, "Horizontal overflow");
+                    const windows = document.querySelector('section[aria-label="Windows 11"]');
+                    const windowsDownload = windows && windows.querySelector("a.btn");
+                    assert(windowsDownload && windowsDownload.textContent.trim() === "Download Windows builds", "Missing Windows download CTA");
+                    assert(windowsDownload.href === "https://github.com/denmanjohn-maker/pickleball-screensaver/releases", "Windows CTA must link to Releases");
+                    assert(windows.textContent.includes("ARM64") && windows.textContent.includes("x64"), "Missing Windows architectures");
+                    assert(windows.querySelector(".hero-note").textContent.includes("validation candidates"), "Missing Windows validation notice");
+                    const downloadRect = windowsDownload.getBoundingClientRect();
+                    assert(downloadRect.width > 0 && downloadRect.height > 0 && downloadRect.left >= 0 && downloadRect.right <= innerWidth, "Windows CTA hidden or clipped");
+                    const macDownloads = [...document.querySelectorAll(".hero .cta-row a")];
+                    assert(macDownloads.length === 2, "macOS download options changed");
+                    assert(macDownloads[0].href === "https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest/download/PickleballScreensaver.dmg", "macOS DMG link changed");
+                    assert(macDownloads[1].href === "https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest/download/PickleballScreensaver.zip", "macOS ZIP link changed");
                     for (const link of document.querySelectorAll('a[href^="#"]')) {
                         assert(document.getElementById(link.hash.slice(1)), "Broken section link");
                     }
