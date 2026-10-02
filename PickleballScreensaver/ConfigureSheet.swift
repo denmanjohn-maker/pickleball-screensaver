@@ -14,10 +14,12 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
     private var drillSettings = DrillSettings.load()
     private var themeSettings = ThemeSettings.load()
     private var matchSettings = MatchSettings.load()
+    private var motionSettings = MotionSettings.load()
     private var pendingPlace: GeocodedPlace?
 
     private let themePopup = NSPopUpButton()
     private let formatPopup = NSPopUpButton()
+    private let motionPopup = NSPopUpButton()
     private let weatherCheck = NSButton(checkboxWithTitle: "Show weather", target: nil, action: nil)
     private let cityField = NSTextField(string: "")
     private let lookupButton = NSButton(title: "Look Up", target: nil, action: nil)
@@ -40,6 +42,8 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
     private static let themeTitles = ["Classic", "Black Light"]
     private static let formatChoices = ["doubles", "singles"]
     private static let formatTitles = ["Doubles", "Singles"]
+    private static let motionChoices: [CourtMotion] = [.slow, .standard, .still]
+    private static let motionTitles = ["Slow spin (12 seconds)", "Original spin (6 seconds)", "No spin"]
 
     private(set) lazy var window: NSWindow = buildWindow()
 
@@ -52,9 +56,11 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         drillSettings = DrillSettings.load()
         themeSettings = ThemeSettings.load()
         matchSettings = MatchSettings.load()
+        motionSettings = MotionSettings.load()
         pendingPlace = nil
         themePopup.selectItem(at: Self.themeChoices.firstIndex(of: themeSettings.theme) ?? 0)
         formatPopup.selectItem(at: Self.formatChoices.firstIndex(of: matchSettings.format) ?? 0)
+        motionPopup.selectItem(at: Self.motionChoices.firstIndex(of: motionSettings.courtMotion) ?? 0)
         weatherCheck.state = weatherSettings.enabled ? .on : .off
         cityField.stringValue = weatherSettings.locationName
         locationLabel.stringValue = weatherSettings.hasLocation
@@ -84,6 +90,7 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         }
         themePopup.addItems(withTitles: Self.themeTitles)
         formatPopup.addItems(withTitles: Self.formatTitles)
+        motionPopup.addItems(withTitles: Self.motionTitles)
         drillLevelPopup.addItems(withTitles: Self.drillLevelTitles)
         drillCheck.target = self
         drillCheck.action = #selector(drillToggled(_:))
@@ -116,6 +123,7 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
             gameHeader,
             indent(hstack([NSTextField(labelWithString: "Theme:"), themePopup,
                            NSTextField(labelWithString: "Format:"), formatPopup])),
+            indent(hstack([NSTextField(labelWithString: "Court motion:"), motionPopup])),
             extrasHeader,
             weatherCheck,
             indent(hstack([cityField, lookupButton])),
@@ -243,6 +251,8 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         themeSettings.save()
         matchSettings.format = Self.formatChoices[max(0, formatPopup.indexOfSelectedItem)]
         matchSettings.save()
+        motionSettings.courtMotion = Self.motionChoices[max(0, motionPopup.indexOfSelectedItem)]
+        motionSettings.save()
         dismiss(.OK)
     }
 

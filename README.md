@@ -2,13 +2,31 @@
 
 [![Latest release](https://img.shields.io/github/v/release/denmanjohn-maker/pickleball-screensaver)](https://github.com/denmanjohn-maker/pickleball-screensaver/releases/latest)
 
-A macOS screensaver that renders a stylized pickleball court with an animated singles rally and scoreboard.
+A macOS screensaver that renders a stylized pickleball court with animated singles or doubles rallies and a scoreboard.
 
 **Just want to install it?** Grab the signed, notarized installer from the
 **[download page](https://denmanjohn-maker.github.io/pickleball-screensaver/)** —
 no build tools needed.
 
-The left rail of widget-style cards shows the clock, current weather with a "good day to play?" badge, nearby tournaments, and drill of the day.
+The left rail of widget-style cards shows current weather with a "good day to play?" badge, nearby tournaments, and drill of the day. A separate clock and team-colored scoreboard sit below the court.
+
+## Court and game options
+
+Choose **Classic** or **Black Light**, and **Singles** or **Doubles**, in
+**Options…**. Team A uses cyan paddles; Team B uses coral in Classic and pink
+in Black Light. Those identities stay fixed on the scoreboard as the camera rotates.
+
+**Court motion** offers a slow 12-second turn each minute (the default), the
+original 6-second turn, or no spin. macOS **Reduce motion** disables court
+spins and ambient wallpaper effects regardless of this choice.
+High lobs gently ease the camera back when necessary to keep the ball visible;
+Reduce motion uses fixed framing with extra headroom instead.
+
+Doubles favors kitchen exchanges and hands battles; singles favors passing
+shots, deeper recovery, and selective approaches. Serving follows service-court
+rules and side-out scoring, and players must let the serve and return bounce.
+Kitchen balls can be played off the bounce, but players must reestablish
+position outside the kitchen before volleying.
 
 ## Weather
 
@@ -29,6 +47,16 @@ make
 ```
 
 That builds `PickleballScreensaver.saver`.
+
+Run the deterministic simulation and projection regression checks with:
+
+```sh
+make test
+```
+
+These cover service rotations, kitchen legality, paddle contact, exact bounce
+locations, shot-speed and ending distributions, frame-rate independence,
+forced shot behaviors, and camera framing throughout a full rotation.
 
 To install it for the current user:
 

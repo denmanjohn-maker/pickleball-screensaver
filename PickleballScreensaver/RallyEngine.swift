@@ -15,6 +15,10 @@ enum Court {
     static func netTopY(_ wx: CGFloat) -> CGFloat {
         (34 + 2 * wx * wx) / (12 * ftPerY)
     }
+
+    static func feetInKitchen(_ z: CGFloat) -> Bool {
+        z >= kitchenNearZ - 0.01 && z <= kitchenFarZ + 0.01
+    }
 }
 
 // MARK: - Types
@@ -78,6 +82,28 @@ struct PlayerState {
     var predNoise: CGFloat = 0       // this flight's read error, decaying as the ball nears
     var predClock: CGFloat = 0       // re-read cadence
     var hasPrediction = false
+    var swingReach: CGFloat = 0.18
+    var contactDZ: CGFloat = 0
+    var kitchenEstablished = true
+    var volleyRecovery: CGFloat = 0
+}
+
+struct ShotContact {
+    let number: Int
+    let type: ShotType
+    let playerIndex: Int
+    let player: PlayerState
+    let ball: Vec3
+    let receivedBounces: Int
+    let velocity: Vec3
+    let landing: Vec3
+    let intendedEnding: RallyEnding?
+    let servingScore: Int
+}
+
+enum RallyEvent {
+    case contact(ShotContact)
+    case bounce(Vec3)
 }
 
 // Ease curve: gentle start and finish, peak velocity mid-segment.
@@ -126,8 +152,8 @@ final class RallyEngine {
     private let bounceDamp: CGFloat = 0.55
 
     // Court depth landmarks
-    private let nearBaselineZ: CGFloat = 0.03
-    private let farBaselineZ:  CGFloat = 0.97
+    private let nearBaselineZ: CGFloat = -0.035
+    private let farBaselineZ:  CGFloat = 1.035
     private let kitchenStandoffZ: CGFloat = 0.02      // players hold this far behind their kitchen line
 
     // Movement — real players shuffle, they don't teleport.
@@ -137,7 +163,8 @@ final class RallyEngine {
     private let advanceSpeed: CGFloat = 0.11   // ~4.8 ft/s working up through transition
     private let runInSpeed:   CGFloat = 0.15   // ~6.6 ft/s covering real ground (run-ins, retreats)
     private let reach:     CGFloat = 0.18      // paddle contact offset from body (1.8 ft)
-    private let hitWindow: CGFloat = 0.35      // max |ball.x - contact point| for a clean hit
+    private let hitWindow: CGFloat = 0.06      // final arm adjustment, not a substitute for footwork
+    private var lateralSpeed: CGFloat { format == .singles ? 0.85 : latSpeedMax }
 
     // Rally behavior — `var` (not `let`) so an offscreen harness can force behaviors
     var thirdDriveFrac:   CGFloat = 0.5    // third shots that are drives (vs drops)
@@ -177,7 +204,13 @@ final class RallyEngine {
     private var hitterIdx = 0                 // designated receiver of the current flight
     private var serverIdx = 0                 // who serves the current point
     private var dinkStreak = 0                // consecutive dinks — pressure to speed up builds
-    private var winnerFlight = false          // this flight is the scripted put-away
+    private var leaveOutBall = false
+    private var accumulatedTime: CGFloat = 0
+    private var flightElapsed: CGFloat = 0
+    private var reportedMiss = false
+    private(set) var contactCount = 0
+    private(set) var lastContact: ShotContact?
+    private(set) var frameEvents: [RallyEvent] = []
 
     // Score — side-out scoring; games to 11, win by 2. Doubles uses the real
     // three-number call: server score, receiver score, server number — with
@@ -186,10 +219,7 @@ final class RallyEngine {
     private(set) var farScore  = 0
     private(set) var nearServing = false
     private(set) var serverNumber = 2      // doubles: 1 or 2; game starts on 2
-    // The 0-0-2 game opener: the score CALLS server two, but the parity-court
-    // player serves — "2" only means their loss is an immediate side-out.
-    // Cleared at the first side-out, after which server 2 really is the partner.
-    private var openingService = true
+    private var needsFirstServer = true
     private(set) var nearGames = 0
     private(set) var farGames  = 0
     private(set) var gameBannerTimer: CGFloat = 0
@@ -213,8 +243,12 @@ final class RallyEngine {
         nearScore = 0; farScore = 0
         nearGames = 0; farGames = 0
         serverNumber = 2
-        openingService = true
+        needsFirstServer = true
         gameBannerTimer = 0
+        accumulatedTime = 0
+        lastContact = nil
+        contactCount = 0
+        frameEvents.removeAll()
         nearServing = Bool.random(using: &rng)
         buildPlayers()
         beginBetweenPoints(firstDelay: 1.0)
@@ -225,8 +259,14 @@ final class RallyEngine {
         guard f != format else { return }
         format = f
         nearScore = 0; farScore = 0
+        nearGames = 0; farGames = 0
+        gameBannerTimer = 0
         serverNumber = 2
-        openingService = true
+        needsFirstServer = true
+        accumulatedTime = 0
+        lastContact = nil
+        contactCount = 0
+        frameEvents.removeAll()
         buildPlayers()
         beginBetweenPoints(firstDelay: 1.0)
     }
@@ -343,10 +383,8 @@ final class RallyEngine {
 
     // MARK: - Rally script
 
-    // Sample the point at serve time: how many shots it will last and how it
-    // ends. Non-terminal shots are then aimed reachable by construction, so
-    // the distributions land where real match data says they should
-    // (~60% of rallies at 3–10 shots, two thirds ending on errors).
+    // Sample a preferred length and ending mix; actual coverage still decides
+    // whether an attack wins (~60% at 3–10 shots, two thirds ending on errors).
     private func sampleScript() {
         let r = rand(0...1)
         if r < 0.007 {                    // missed serve — pros almost never do
@@ -363,7 +401,9 @@ final class RallyEngine {
             scriptEnding = .winner
         }
         // Serve/return misses are always errors
-        if scriptN <= 2 { scriptEnding = chance(0.6) ? .netError : .longError }
+        if scriptN <= 2 && endingErrorFrac > 0 {
+            scriptEnding = chance(0.6) ? .netError : .longError
+        }
     }
 
     // MARK: - Point lifecycle
@@ -376,23 +416,23 @@ final class RallyEngine {
         shotIndex = 0
         bounceCount = 0
         dinkStreak = 0
-        winnerFlight = false
+        leaveOutBall = false
         trailPoints.removeAll()
         ballSpin = 0
 
-        // Who serves, from where, and who receives. The parity-court player
-        // is the team's first server; their partner is the second.
         let servingFacing: CGFloat = nearServing ? 1 : -1
         let score = nearServing ? nearScore : farScore
-        let serveCourt = score % 2 == 0 ? 0 : 1
         let servers = indices(facing: servingFacing)
         let receivers = indices(facing: -servingFacing)
-        let firstServer = servers.first(where: { players[$0].court == serveCourt }) ?? servers[0]
-        if format == .doubles && serverNumber == 2 && !openingService && servers.count == 2 {
-            serverIdx = servers.first(where: { $0 != firstServer }) ?? firstServer
-        } else {
-            serverIdx = firstServer
+        if format == .singles {
+            serverIdx = servers[0]
+            players[serverIdx].court = score % 2
+            players[receivers[0]].court = score % 2
+        } else if needsFirstServer {
+            // Every new service turn starts on the right, regardless of score.
+            serverIdx = servers.first(where: { players[$0].court == 0 })!
         }
+        needsFirstServer = false
         // The receiver stands in the court diagonal from the server
         let serverCourt = players[serverIdx].court
         let receiverIdx = receivers.first(where: { players[$0].court == serverCourt }) ?? receivers[0]
@@ -401,6 +441,7 @@ final class RallyEngine {
             var p = players[i]
             p.hasPrediction = false
             p.armed = true
+            p.volleyRecovery = 0
             if i == serverIdx {
                 p.targetX = courtX(facing: p.facing, court: p.court)
                 p.targetZ = baselineZ(facing: p.facing)
@@ -446,23 +487,21 @@ final class RallyEngine {
         let targetX = boxSign * rand(0.30...0.78)
         let depth = rand(0.87...0.955)                       // deep in the box
         let targetZ = facing > 0 ? depth : 1 - depth
+        let margin = rand(0.10...0.22)
         let sol = solveLanding(fromX: ball.x, fromZ: ball.z, fromY: ball.y,
-                               targetX: targetX, targetZ: targetZ, margin: rand(0.10...0.22))
+                               targetX: targetX, targetZ: targetZ, margin: margin)
         bVel = sol.v
-        applyEnding(shotN: 1, targetX: targetX, targetZ: targetZ, flightT: sol.flightT)
+        applyEnding(shotN: 1, targetX: targetX, targetZ: targetZ, margin: margin)
 
-        server.contactY = ball.y
+        placeContactPose(&server)
         server.swingAmp = 0.9
-        if !server.swingPhase || server.swingT < contactFrac {
-            server.swingPhase = true
-            server.swingT = contactFrac
-        }
         players[serverIdx] = server
+        recordContact(n: 1, type: .serve, idx: serverIdx, player: server, receivedBounces: 0)
 
-        designateAndPrimeReceiver(facing: -facing)
+        primeReceiver(hitterIdx)
         emitShot(n: 1, type: .serve, facing: facing,
                  stance: server.stance == fhSide(server) ? "FH" : "BH",
-                 x: ball.x, targetX: targetX, flightT: sol.flightT)
+                 x: ball.x)
     }
 
     // Pick which receiving player takes this flight and give them a human
@@ -488,11 +527,16 @@ final class RallyEngine {
                 chosen = abs(players[a].x - px) < abs(players[b].x - px) ? a : b
             }
         }
-        hitterIdx = chosen
-        players[chosen].reactionTimer = max(0.12, min(0.35, gauss(0.22, 0.05)))
-        players[chosen].predNoise = gauss(0, 0.08)
-        players[chosen].hasPrediction = false
-        players[chosen].committedStance = 0
+        primeReceiver(chosen)
+    }
+
+    private func primeReceiver(_ idx: Int) {
+        hitterIdx = idx
+        players[idx].reactionTimer = max(0.12, min(0.35, gauss(0.22, 0.05)))
+        players[idx].predNoise = gauss(0, 0.08)
+        players[idx].hasPrediction = false
+        players[idx].committedStance = 0
+        players[idx].predClock = 0
     }
 
     // Does this player's forehand point from their body toward the center line?
@@ -501,31 +545,57 @@ final class RallyEngine {
     }
 
     // Modify the in-flight velocity so the scripted final shot misses (or wins)
-    private func applyEnding(shotN: Int, targetX: CGFloat, targetZ: CGFloat, flightT: CGFloat) {
-        guard shotN == scriptN else { return }
-        switch scriptEnding {
-        case .netError:
-            // Re-solve with a clipping margin so the ball catches the tape
-            let sol = solveLanding(fromX: ball.x, fromZ: ball.z, fromY: ball.y,
-                                   targetX: targetX, targetZ: targetZ, margin: rand(-0.075 ... -0.025))
-            bVel = sol.v
-        case .wideError:
-            let sign: CGFloat = chance(0.5) ? 1 : -1
-            bVel.x = (sign * rand(1.06...1.20) - ball.x) / flightT
-        case .longError:
-            // Stretch the flight so the first bounce clears the baseline
-            let needed = bVel.z > 0 ? rand(1.03...1.10) : rand(-0.10 ... -0.03)
-            let over = max(1.04, (needed - ball.z) / (targetZ - ball.z))
-            bVel.z *= over
-            bVel.x *= over
-        case .winner:
-            break   // handled at aim time (placed beyond the defender's reach)
+    private func applyEnding(shotN: Int, targetX: CGFloat, targetZ: CGFloat, margin: CGFloat,
+                             apex: CGFloat? = nil) {
+        if shotN == scriptN {
+            switch scriptEnding {
+            case .netError:
+                let t = (0.5 - ball.z) / bVel.z
+                let x = ball.x + bVel.x * t
+                bVel.y = (Court.netTopY(x) - rand(0.025...0.055) - ball.y - gravity * t * t / 2) / t
+            case .wideError:
+                let x = (targetX >= 0 ? CGFloat(1) : -1) * rand(1.06...1.12)
+                if let apex {
+                    bVel = solveApex(fromX: ball.x, fromZ: ball.z, fromY: ball.y,
+                                    targetX: x, targetZ: targetZ, apexY: apex).v
+                } else {
+                    bVel = solveLanding(fromX: ball.x, fromZ: ball.z, fromY: ball.y,
+                                        targetX: x, targetZ: targetZ, margin: margin).v
+                }
+            case .longError:
+                let z = bVel.z > 0 ? rand(1.03...1.08) : rand(-0.08 ... -0.03)
+                if let apex {
+                    bVel = solveApex(fromX: ball.x, fromZ: ball.z, fromY: ball.y,
+                                    targetX: targetX, targetZ: z, apexY: apex).v
+                } else {
+                    bVel = solveLanding(fromX: ball.x, fromZ: ball.z, fromY: ball.y,
+                                        targetX: targetX, targetZ: z, margin: margin).v
+                }
+            case .winner:
+                break
+            }
         }
+        let landing = landingPoint()
+        leaveOutBall = abs(landing.x) > 1.025 || landing.z < -0.025 || landing.z > 1.025
+        flightElapsed = 0
+        reportedMiss = false
     }
 
     // MARK: - Frame step
 
     func step(dt: CGFloat) {
+        precondition(dt.isFinite && dt >= 0 && dt <= 0.25,
+                     "Simulation timestep must be finite and between 0 and 0.25 seconds")
+        frameEvents.removeAll(keepingCapacity: true)
+        accumulatedTime += dt
+        let fixedDT: CGFloat = 1.0 / 120.0
+        while accumulatedTime + 1e-9 >= fixedDT {
+            accumulatedTime = max(0, accumulatedTime - fixedDT)
+            stepSimulation(dt: fixedDT)
+        }
+    }
+
+    private func stepSimulation(dt: CGFloat) {
         if gameBannerTimer > 0 { gameBannerTimer -= dt }
 
         switch phase {
@@ -546,7 +616,7 @@ final class RallyEngine {
         ballSpin += linearSpd * 18.0 * dt
         if phase != .betweenPoints {
             trailPoints.append(ball)
-            if trailPoints.count > 18 { trailPoints.removeFirst() }
+            if trailPoints.count > 36 { trailPoints.removeFirst() }
         }
     }
 
@@ -565,7 +635,7 @@ final class RallyEngine {
 
         // Wait for the players to reach their spots, then wind up and strike
         let ready = players.allSatisfy {
-            abs($0.x - $0.targetX) < 0.06 && abs($0.z - $0.targetZ) < 0.03
+            abs($0.x - $0.targetX) < 0.02 && abs($0.z - $0.targetZ) < 0.005
         }
         if !serveArmed && phaseTimer <= 0 && ready {
             serveArmed = true
@@ -576,6 +646,8 @@ final class RallyEngine {
             s.swingT = 0
             s.swingDur = 0.55
             s.swingAmp = 0.9
+            s.swingReach = reach
+            s.contactDZ = 0
             players[serverIdx] = s
         }
         if serveArmed {
@@ -589,6 +661,7 @@ final class RallyEngine {
     }
 
     private func stepRally(dt: CGFloat) {
+        flightElapsed += dt
         let prevX = ball.x, prevY = ball.y, prevZ = ball.z
         integrateBall(dt: dt, adjudicate: true)
         guard phase != .dead else { return }
@@ -618,7 +691,8 @@ final class RallyEngine {
         // their plane
         let h = players[hitterIdx]
         let ballComing = h.facing > 0 ? bVel.z < 0 : bVel.z > 0
-        if ballComing && (h.facing > 0 ? ball.z <= h.z : ball.z >= h.z) {
+        if !leaveOutBall && ballComing && abs(ball.z - h.z) <= 0.012 &&
+            (h.facing > 0 ? ball.z <= h.z : ball.z >= h.z) {
             attemptHit()
         }
     }
@@ -628,7 +702,9 @@ final class RallyEngine {
         // the striker's index before it moves
         let idx = hitterIdx
         var p = players[idx]
-        if !p.swingPhase {
+        if p.committedStance != 0 {
+            p.stance = p.committedStance
+        } else if !p.swingPhase {
             // The arm window was compressed away (fast exchange) — pick the
             // stance from the commitment, or the ball's actual side, rather
             // than inheriting last stroke's
@@ -636,12 +712,21 @@ final class RallyEngine {
             p.stance = p.committedStance != 0 ? p.committedStance
                                               : ((ball.x - p.x) * fh > 0.04 ? fh : -fh)
         }
+        if (ball.x - p.x) * p.stance < 0 && abs(ball.x - p.x) < 0.025 {
+            p.stance = -p.stance
+        }
         let backhand = p.stance != fhSide(p)
-        let contact = p.x + p.stance * (backhand ? reachBackhand : reach)
-        let canVolley = !mustBounce || bounceCount >= 1
-        if canVolley && !winnerFlight && abs(ball.x - contact) < hitWindow && ball.y < 0.42 {
+        let offset = (ball.x - p.x) * p.stance
+        let maxReach = (backhand ? reachBackhand : reach) + hitWindow
+        let canStrike = bounceCount >= 1 ||
+            (!mustBounce && p.kitchenEstablished && !Court.feetInKitchen(p.z))
+        if canStrike && offset >= 0 && offset <= maxReach && ball.y < 0.70 {
             strikeBall(&p)
             players[idx] = p
+        } else if !reportedMiss {
+            reportedMiss = true
+            statsSink?("miss n=\(shotIndex) type=\(lastShotType.rawValue) offset=\(offset) " +
+                       "reach=\(maxReach) y=\(ball.y) bounces=\(bounceCount) kitchen=\(Court.feetInKitchen(p.z))")
         }
         // A miss is not an instant fault: the ball flies on and the landing
         // (or second bounce) decides the point in integrateBall.
@@ -653,8 +738,7 @@ final class RallyEngine {
         shotIndex += 1
         let n = shotIndex
         let facing = p.facing
-        ball.z = p.z
-        ball.y = max(ball.y, 0.03)
+        let receivedBounces = bounceCount
 
         // The scripted ending didn't stick (a defender ran the winner down,
         // or an error shot clipped over) — script another ending soon,
@@ -679,10 +763,21 @@ final class RallyEngine {
             type = chance(thirdDriveFrac) ? .thirdDrive : .thirdDrop
         } else if lastShotType == .speedup || lastShotType == .counter {
             // Hands battle: fire back, or defuse it soft into the kitchen
-            type = chance(0.62) ? .counter : .reset
+            type = chance(format == .singles ? 0.82 : 0.62) ? .counter : .reset
         } else if lastShotType == .thirdDrive || lastShotType == .drive {
             // Blunting a drive: mostly soft resets into the kitchen
-            type = chance(0.66) ? .reset : .drive
+            type = chance(format == .singles ? 0.22 : 0.66) ? .reset : .drive
+        } else if format == .singles {
+            if atKitchen && oppAtKitchen && chance(lobProb) {
+                type = .lob
+            } else if atKitchen && oppAtKitchen &&
+                chance(min(1, speedupProbPerDink + 0.18 + CGFloat(dinkStreak) * 0.04)) {
+                type = .speedup
+            } else if atKitchen && oppAtKitchen {
+                type = chance(0.35) ? .dink : .drive
+            } else {
+                type = chance(atKitchen ? 0.85 : 0.75) ? .drive : .drop
+            }
         } else if atKitchen && oppAtKitchen {
             // Patient dinking, with mounting pressure to end it — a lob or a
             // sudden speed-up into a hands battle
@@ -703,6 +798,10 @@ final class RallyEngine {
         if n == scriptN && scriptEnding == .winner && n > 2 {
             type = atKitchen ? .speedup : .drive
         }
+        if n == scriptN && scriptEnding == .longError && n > 2 {
+            // An overhit soft ball is a lob/pop-up, never a 50 mph "dink".
+            type = atKitchen ? .lob : .drive
+        }
         dinkStreak = type == .dink ? dinkStreak + 1 : 0
 
         // Aim it: target landing spot + net margin by shot type
@@ -715,7 +814,8 @@ final class RallyEngine {
             return   // handled by launchServe
         case .serviceReturn:
             // Deep, loopy, favoring the middle
-            targetX = max(-0.7, min(0.7, gauss(-0.05, 0.35)))
+            targetX = format == .singles ? aimAcross(from: ball.x, cross: true)
+                                        : max(-0.7, min(0.7, gauss(-0.05, 0.35)))
             depth = rand(0.82...0.94)
             margin = rand(0.25...0.40)
         case .thirdDrop, .drop, .reset:
@@ -727,7 +827,12 @@ final class RallyEngine {
         case .thirdDrive, .drive:
             // Flat and deep, at the opponent or the open court
             cross = chance(0.5)
-            targetX = aimAcross(from: ball.x, cross: cross)
+            if format == .singles {
+                targetX = (players[oppIdxs[0]].x >= 0 ? -1 : CGFloat(1)) * rand(0.65...0.88)
+                cross = targetX * ball.x < 0
+            } else {
+                targetX = aimAcross(from: ball.x, cross: cross)
+            }
             depth = rand(0.84...0.95)
             margin = rand(0.03...0.07)
         case .dink:
@@ -749,13 +854,20 @@ final class RallyEngine {
             depth = rand(0.86...0.94)
             margin = 0   // unused; lobs solve by apex
         }
-        let targetZ = facing > 0 ? depth : 1 - depth
+        if n + 1 == scriptN && scriptEnding == .winner && n >= 3 && type != .lob {
+            margin = max(margin, rand(0.25...0.32))
+        }
+        var targetZ = facing > 0 ? depth : 1 - depth
+        let apex: CGFloat? = type == .lob ? rand(1.5...2.0) : nil
 
-        var sol = type == .lob
-            ? solveApex(fromX: ball.x, fromZ: ball.z, fromY: ball.y,
-                        targetX: targetX, targetZ: targetZ, apexY: rand(1.5...2.0))
-            : solveLanding(fromX: ball.x, fromZ: ball.z, fromY: ball.y,
-                           targetX: targetX, targetZ: targetZ, margin: margin)
+        var sol: (v: Vec3, flightT: CGFloat)
+        if let apex {
+            sol = solveApex(fromX: ball.x, fromZ: ball.z, fromY: ball.y,
+                           targetX: targetX, targetZ: targetZ, apexY: apex)
+        } else {
+            sol = solveLanding(fromX: ball.x, fromZ: ball.z, fromY: ball.y,
+                               targetX: targetX, targetZ: targetZ, margin: margin)
+        }
 
         // The player most likely to take this ball, for aiming purposes
         let provisionalIdx = oppIdxs.min(by: {
@@ -774,6 +886,7 @@ final class RallyEngine {
                 let deficit = (opponent.z + 0.02) - bounce2Z
                 if deficit > 0 {
                     let deeper = min(0.88, targetZ + deficit)
+                    targetZ = deeper
                     sol = solveLanding(fromX: ball.x, fromZ: ball.z, fromY: ball.y,
                                        targetX: targetX, targetZ: deeper, margin: margin)
                 }
@@ -781,6 +894,7 @@ final class RallyEngine {
                 let deficit = bounce2Z - (opponent.z - 0.02)
                 if deficit > 0 {
                     let deeper = max(0.12, targetZ - deficit)
+                    targetZ = deeper
                     sol = solveLanding(fromX: ball.x, fromZ: ball.z, fromY: ball.y,
                                        targetX: targetX, targetZ: deeper, margin: margin)
                 }
@@ -790,61 +904,60 @@ final class RallyEngine {
         }
 
         if n == scriptN && scriptEnding == .winner {
-            // Find the spot inside the lines that every defender is furthest
-            // from — a sideline or the middle seam — and hit it there
-            let cover = reachCover(flightT: sol.flightT)
-            func minDist(_ t: CGFloat) -> CGFloat {
-                oppIdxs.map { abs(players[$0].x - t) }.min() ?? 2
+            // Evaluate coverage at the interception plane, not at the eventual bounce.
+            func opening(_ x: CGFloat) -> CGFloat {
+                oppIdxs.map {
+                    let defender = players[$0]
+                    let fraction = max(0.1, (defender.z - ball.z) / (targetZ - ball.z))
+                    let intercept = ball.x + (x - ball.x) * fraction
+                    let cover = lateralSpeed * max(0, sol.flightT * fraction - 0.22) + reach + hitWindow
+                    return abs(intercept - defender.x) - cover
+                }.min()!
             }
-            let best = [-CGFloat(0.92), 0.92, 0].max(by: { minDist($0) < minDist($1) })!
-            if minDist(best) > cover * 1.05 {
-                targetX = best
-            }
-            // else: no clean winner exists against this coverage — play on
-            // and let the re-armed script end the rally soon
+            targetX = [-CGFloat(0.98), 0, 0.98].max(by: { opening($0) < opening($1) })!
         } else if n < scriptN {
             // Keep every non-terminal shot honestly reachable given the
             // receiver's shuffle speed, reaction delay, and read noise
-            let cover = reachCover(flightT: sol.flightT)
-            targetX = max(opponent.x - cover, min(opponent.x + cover, targetX))
+            let fraction = max(0.1, (opponent.z - ball.z) / (targetZ - ball.z))
+            let cover = reachCover(flightT: sol.flightT * fraction)
+            let intercept = ball.x + (targetX - ball.x) * fraction
+            let reachable = max(opponent.x - cover, min(opponent.x + cover, intercept))
+            targetX = ball.x + (reachable - ball.x) / fraction
             targetX = max(-0.88, min(0.88, targetX))
         }
         sol.v.x = (targetX - ball.x) / sol.flightT
         bVel = sol.v
-        applyEnding(shotN: n, targetX: targetX, targetZ: targetZ, flightT: sol.flightT)
+        applyEnding(shotN: n, targetX: targetX, targetZ: targetZ, margin: margin, apex: apex)
 
         lastHitNear = facing > 0
         lastShotType = type
         mustBounce = (n == 2)   // the third shot must bounce (two-bounce rule)
         bounceCount = 0
-        // The scripted put-away handcuffs the defender: they swing, but the
-        // clean return isn't there (how most real winners actually win)
-        winnerFlight = (n == scriptN && scriptEnding == .winner)
 
         // Phase bookkeeping + who advances where
         advanceAfterShot(n: n, type: type, facing: facing, hitter: &p)
 
         // Swing pose: contact happens now; the follow-through plays from impact
-        p.contactY = min(0.70, max(0.03, ball.y))
         p.swingDur = swingDur(for: type)
         p.swingAmp = swingAmp(for: type)
-        if !p.swingPhase || p.swingT < contactFrac {
-            p.swingPhase = true
-            p.swingT = contactFrac
+        placeContactPose(&p)
+        if receivedBounces == 0 {
+            p.volleyRecovery = p.swingDur * (1 + recoveryFrac - contactFrac)
         }
+        recordContact(n: n, type: type, idx: hitterIdx, player: p, receivedBounces: receivedBounces)
 
         designateAndPrimeReceiver(facing: -facing)
 
         let stance = p.stance == fhSide(p) ? "FH" : "BH"
         emitShot(n: n, type: type, facing: facing, stance: stance, x: ball.x,
-                 targetX: targetX, flightT: sol.flightT, cross: cross)
+                 cross: cross)
     }
 
     // How far laterally the receiver can honestly cover during a flight —
     // deliberately conservative (reaction, read noise, and the slow final
     // adjustment all eat into the raw shuffle-speed × time budget)
     private func reachCover(flightT: CGFloat) -> CGFloat {
-        latSpeedMax * max(0, flightT - 0.35) * 0.8 + hitWindow * 0.6
+        lateralSpeed * max(0, flightT - 0.35) * 0.65 + reachBackhand * 0.8
     }
 
     // Pick a landing x on the same side (straight) or across the body (cross-court)
@@ -858,6 +971,25 @@ final class RallyEngine {
 
     // Movement consequences of the shot just struck, and the phase label
     private func advanceAfterShot(n: Int, type: ShotType, facing: CGFloat, hitter: inout PlayerState) {
+        if format == .singles {
+            let deepHome: CGFloat = facing > 0 ? 0.14 : 0.86
+            if n == 2 {
+                hitter.targetZ = chance(0.45) ? kitchenZ(facing: facing) : deepHome
+            } else if n == 3 {
+                hitter.targetZ = type == .thirdDrop && chance(0.4) ? kitchenZ(facing: facing) : deepHome
+            } else {
+                hitter.targetZ = isAtKitchen(hitter) ? kitchenZ(facing: facing) : deepHome
+            }
+            if type == .lob {
+                for i in indices(facing: -facing) {
+                    players[i].targetZ = baselineZ(facing: -facing)
+                }
+            }
+            phase = n == 2 ? .returning : (n == 3 ? .third :
+                ((type == .speedup || type == .counter) ? .firefight :
+                    (teamAtKitchen(facing: 1) && teamAtKitchen(facing: -1) ? .kitchen : .transition)))
+            return
+        }
         switch n {
         case 1:
             phase = .serve
@@ -923,26 +1055,42 @@ final class RallyEngine {
     // MARK: - Ball integration + adjudication
 
     private func integrateBall(dt: CGFloat, adjudicate: Bool) {
-        ball.y += bVel.y * dt
-        bVel.y += gravity * dt
-        ball.x += bVel.x * dt
-        ball.z += bVel.z * dt
+        if !adjudicate && ball.y == 0 && abs(bVel.y) < 0.02 {
+            ball.x += bVel.x * dt
+            ball.z += bVel.z * dt
+            bVel.x *= exp(-2 * dt); bVel.z *= exp(-2 * dt)
+            bVel.y = 0
+            return
+        }
+        let nextY = ball.y + bVel.y * dt + gravity * dt * dt / 2
+        let flightDT = nextY < 0 ? min(dt, landingTime()) : dt
+        ball.y += bVel.y * flightDT + gravity * flightDT * flightDT / 2
+        bVel.y += gravity * flightDT
+        ball.x += bVel.x * flightDT
+        ball.z += bVel.z * flightDT
 
-        if ball.y < 0 {
+        if nextY < 0 {
             ball.y = 0
             bVel.y = abs(bVel.y) * bounceDamp
-            guard adjudicate else { return }
-            bounceCount += 1
-            if bounceCount == 1 {
-                // First bounce: out ends the point against the hitter
-                let out = abs(ball.x) > 1.005 || ball.z < -0.005 || ball.z > 1.005
-                if out {
-                    pointOver(loserNear: lastHitNear,
-                              reason: abs(ball.x) > 1.005 ? "wide" : "long")
+            if adjudicate {
+                frameEvents.append(.bounce(ball))
+                bounceCount += 1
+                if bounceCount == 1 {
+                    let out = abs(ball.x) > 1.005 || ball.z < -0.005 || ball.z > 1.005
+                    let badServe = lastShotType == .serve &&
+                        (ball.x * lastContact!.ball.x >= 0 ||
+                         (lastHitNear ? ball.z <= Court.kitchenFarZ : ball.z >= Court.kitchenNearZ))
+                    if out || badServe {
+                        pointOver(loserNear: lastHitNear,
+                                  reason: badServe ? "service-box" : (abs(ball.x) > 1.005 ? "wide" : "long"))
+                    }
+                } else if bounceCount >= 2 {
+                    pointOver(loserNear: !lastHitNear, reason: "winner")
                 }
-            } else if bounceCount >= 2 {
-                // Nobody got there — clean winner for the last hitter
-                pointOver(loserNear: !lastHitNear, reason: "winner")
+            }
+            let remaining = dt - flightDT
+            if remaining > 1e-9 {
+                integrateBall(dt: remaining, adjudicate: adjudicate && phase != .dead)
             }
         }
     }
@@ -951,7 +1099,8 @@ final class RallyEngine {
         rallyLostByNear = loserNear
         phase = .dead
         phaseTimer = 1.3
-        statsSink?("rally shots=\(shotIndex) ending=\(reason) loser=\(loserNear ? "N" : "F")")
+        statsSink?("rally shots=\(shotIndex) ending=\(reason) loser=\(loserNear ? "N" : "F") " +
+                   "planned=\(scriptN) intended=\(scriptEnding.rawValue)")
         for i in players.indices { players[i].hasPrediction = false }
     }
 
@@ -963,12 +1112,13 @@ final class RallyEngine {
             if format == .doubles && serverNumber == 1 {
                 // First server loses the rally: the partner serves next
                 serverNumber = 2
+                serverIdx = indices(facing: nearServing ? 1 : -1).first(where: { $0 != serverIdx })!
             } else {
                 // Side-out: serve passes to the other team (and the 0-0-2
                 // opening exception is over)
                 nearServing.toggle()
                 serverNumber = 1
-                openingService = false
+                needsFirstServer = true
             }
         } else {
             if nearServing { nearScore += 1 } else { farScore += 1 }
@@ -985,7 +1135,7 @@ final class RallyEngine {
                 gameBannerTimer = 3.0
                 nearScore = 0; farScore = 0
                 serverNumber = 2   // every game opens on the 0-0-2 exception
-                openingService = true
+                needsFirstServer = true
                 // Game winner (the server) serves first in the next game;
                 // fresh game, fresh chance of a lefty in the lineup
                 rollHands()
@@ -1009,13 +1159,14 @@ final class RallyEngine {
         let isHitter = i == hitterIdx && ballComing
 
         if p.reactionTimer > 0 { p.reactionTimer -= dt }
+        p.volleyRecovery = max(0, p.volleyRecovery - dt)
 
-        if isHitter && p.reactionTimer <= 0 {
+        if isHitter && !leaveOutBall && p.reactionTimer <= 0 {
             // Re-read the incoming ball every 0.15 s; the read error decays
             // as the ball gets closer, like a real player's tracking
             p.predClock -= dt
             let tta = timeToArrival(atZ: p.z)
-            if !p.hasPrediction || p.predClock <= 0 {
+            if !p.hasPrediction || p.predClock <= 0 || tta < 0.25 {
                 p.predClock = 0.15
                 let total = max(0.2, flightTotalT(toZ: p.z))
                 let frac = max(0, min(1, tta / total))
@@ -1025,11 +1176,11 @@ final class RallyEngine {
 
             // Step deeper when a must-bounce ball (or a lob sailing overhead)
             // will land behind the body
-            if (mustBounce || lastShotType == .lob) && bounceCount == 0 {
+            if (mustBounce || lastShotType == .lob || !p.kitchenEstablished) && bounceCount == 0 {
                 let bz = bounceZ()
                 let behind = p.facing > 0 ? min(bz - 0.05, p.z) : max(bz + 0.05, p.z)
                 p.targetZ = p.facing > 0 ? min(p.targetZ, behind) : max(p.targetZ, behind)
-            } else if bounceCount == 0 && abs(bVel.z) < 0.45 {
+            } else if bounceCount == 0 && abs(bVel.z) < 0.45 && p.volleyRecovery == 0 {
                 // Soft incoming: step up and take the ball just past its
                 // bounce (into the kitchen if needed — legal off the bounce)
                 // instead of waiting at the line while it drifts wide
@@ -1072,9 +1223,8 @@ final class RallyEngine {
             let s = p.committedStance == 0 ? fh : p.committedStance
             let off: CGFloat = s == fh ? reach : reachBackhand
             let dx0 = p.predictedX - p.x
-            if abs(dx0) > reach * 1.1 || dx0 * s < 0 {
-                let bias: CGFloat = (tta - 0.5) > 0.9 ? 1.0 : 0.3
-                p.targetX = p.predictedX - s * off * bias
+            if abs(dx0) > off * 0.9 || dx0 * s < 0 {
+                p.targetX = p.predictedX - s * off
             } else {
                 p.targetX = p.x
             }
@@ -1089,13 +1239,14 @@ final class RallyEngine {
                 p.swingDur = isAtKitchen(p) ? 0.38 : 0.5
                 p.swingPhase = true
                 p.swingT = max(0, contactFrac - tta / p.swingDur)
+                p.contactDZ = 0
                 p.armed = false
             }
         } else if inRally && !isHitter {
             // Off the ball: hold position, shifting with the play as a unit
             // and shading a touch to the backhand side so the forehand
             // covers more court (as real players are taught to)
-            let shift = max(-0.15, min(0.15, ball.x * 0.15))
+            let shift = max(-0.20, min(0.20, ball.x * (format == .singles ? 0.25 : 0.15)))
             p.targetX = p.homeX + shift - fhSide(p) * 0.04
             p.armed = true
             p.committedStance = 0
@@ -1114,14 +1265,24 @@ final class RallyEngine {
 
         // Feet: capped shuffle laterally, slower fine adjustments up close
         let dxAbs = abs(p.targetX - p.x)
-        let latCap = dxAbs < 0.25 ? latSpeedNear : latSpeedMax
+        let latCap = dxAbs < 0.25 ? latSpeedNear : lateralSpeed
         p.x = moveVal(p.x, toward: p.targetX, speed: latCap * dt, lo: -1.1, hi: 1.1)
+        if isHitter && p.swingPhase {
+            let maxReach = (p.stance == fhSide(p) ? reach : reachBackhand) + hitWindow
+            p.swingReach = max(0.02, min(maxReach, (p.predictedX - p.x) * p.stance))
+        }
 
         // Depth: run when there's ground to cover, jog the final steps,
         // and slow (not stop) while lining up a hit
         let zDist = abs(p.targetZ - p.z)
-        let zSpd = (zDist > 0.12 ? runInSpeed : advanceSpeed) * (isHitter ? 0.6 : 1.0)
-        p.z = moveVal(p.z, toward: p.targetZ, speed: zSpd * dt, lo: 0.01, hi: 0.99)
+        let zSpd = (zDist > 0.12 ? runInSpeed : advanceSpeed) *
+            (format == .singles ? 1.2 : 1) * (isHitter ? 0.6 : 1.0)
+        if p.volleyRecovery > 0 {
+            p.targetZ = p.facing > 0 ? min(p.targetZ, kitchenZ(facing: 1))
+                                    : max(p.targetZ, kitchenZ(facing: -1))
+        }
+        p.z = moveVal(p.z, toward: p.targetZ, speed: zSpd * dt, lo: -0.12, hi: 1.12)
+        p.kitchenEstablished = !Court.feetInKitchen(p.z)
     }
 
     // Both timing helpers tolerate floor bounces because z-velocity is
@@ -1133,7 +1294,7 @@ final class RallyEngine {
 
     private func flightTotalT(toZ z: CGFloat) -> CGFloat {
         guard abs(bVel.z) > 0.0001 else { return 1 }
-        return abs((z - ball.z) / bVel.z)
+        return flightElapsed + abs((z - ball.z) / bVel.z)
     }
 
     private func interceptX(atZ z: CGFloat) -> CGFloat {
@@ -1144,14 +1305,16 @@ final class RallyEngine {
 
     // Where the current flight's first bounce lands (z), from the closed form
     private func bounceZ() -> CGFloat {
-        let disc = bVel.y * bVel.y + 2 * -gravity * ball.y
-        let t = (bVel.y + sqrt(max(0, disc))) / -gravity
-        return ball.z + bVel.z * t
+        landingPoint().z
     }
 
-    // Vertical speed the current flight will land with
-    private func landingVy() -> CGFloat {
-        -sqrt(max(0, bVel.y * bVel.y + 2 * -gravity * ball.y))
+    private func landingTime() -> CGFloat {
+        (bVel.y + sqrt(max(0, bVel.y * bVel.y - 2 * gravity * ball.y))) / -gravity
+    }
+
+    private func landingPoint() -> Vec3 {
+        let t = landingTime()
+        return Vec3(x: ball.x + bVel.x * t, y: 0, z: ball.z + bVel.z * t)
     }
 
     // Simulate the ball's height at depth targetZ (gravity + floor bounces)
@@ -1163,7 +1326,7 @@ final class RallyEngine {
         let step: CGFloat = 1.0 / 120.0
         while t > 0 {
             let dt = min(step, t)
-            y += vy * dt
+            y += vy * dt + gravity * dt * dt / 2
             vy += gravity * dt
             if y < 0 { y = 0; vy = abs(vy) * bounceDamp }
             t -= dt
@@ -1178,7 +1341,30 @@ final class RallyEngine {
         let fh = p.facing * p.hand
         let ready = p.committedStance != 0 ? p.committedStance : fh
         let backhand = (p.swingPhase ? p.stance : ready) != fh
-        return p.x + (p.swingPhase ? p.stance : ready * 0.7) * (backhand ? reachBackhand : reach)
+        return p.x + (p.swingPhase ? p.stance * p.swingReach
+                                   : ready * 0.7 * (backhand ? reachBackhand : reach))
+    }
+
+    private func placeContactPose(_ p: inout PlayerState) {
+        p.contactY = ball.y
+        p.contactDZ = ball.z - p.z
+        p.swingReach = abs(ball.x - p.x)
+        p.swingPhase = true
+        p.swingT = contactFrac
+        p.faceY = ball.y
+        p.faceDZ = p.contactDZ
+        p.swingAngle = 0
+    }
+
+    private func recordContact(n: Int, type: ShotType, idx: Int, player: PlayerState,
+                               receivedBounces: Int) {
+        contactCount += 1
+        let contact = ShotContact(number: n, type: type, playerIndex: idx, player: player,
+                                  ball: ball, receivedBounces: receivedBounces, velocity: bVel,
+                                  landing: landingPoint(), intendedEnding: n == scriptN ? scriptEnding : nil,
+                                  servingScore: nearServing ? nearScore : farScore)
+        lastContact = contact
+        frameEvents.append(.contact(contact))
     }
 
     // MARK: - Swing animation
@@ -1205,7 +1391,7 @@ final class RallyEngine {
         if t < backswingFrac {
             // Windup: paddle drifts back (away from the net) and down
             let e = smoothstep(t / backswingFrac)
-            p.faceDZ = -facing * len * e
+            p.faceDZ = p.contactDZ - facing * len * e
             p.faceY  = restFaceY + (yLow - restFaceY) * e
             p.swingAngle = readyAngle + (backswingAngle - readyAngle) * e
         } else if t < 1 {
@@ -1214,34 +1400,38 @@ final class RallyEngine {
             // interpolated piecewise so the face is exactly horizontal at the
             // midpoint despite the asymmetric windup/finish angles.
             let e = smoothstep((t - backswingFrac) / (1 - backswingFrac))
-            p.faceDZ = facing * len * (2 * e - 1)
+            p.faceDZ = p.contactDZ + facing * len * (2 * e - 1)
             p.faceY  = yLow + (yHigh - yLow) * e
             p.swingAngle = e < 0.5 ? backswingAngle * (1 - 2 * e)
                                    : followAngle * (2 * e - 1)
         } else if t < 1 + recoveryFrac {
             // Recovery: ease from the high finish back to the ready position
             let e = smoothstep((t - 1) / recoveryFrac)
-            p.faceDZ = facing * len * (1 - e)
+            p.faceDZ = (p.contactDZ + facing * len) * (1 - e)
             p.faceY  = yHigh + (restFaceY - yHigh) * e
             p.swingAngle = followAngle + (readyAngle - followAngle) * e
         } else {
             p.swingPhase = false
             p.swingT = 0; p.swingAngle = readyAngle; p.faceDZ = 0; p.faceY = restFaceY
+            p.contactDZ = 0
         }
     }
 
     // MARK: - Stats
 
     private func emitShot(n: Int, type: ShotType, facing: CGFloat, stance: String,
-                          x: CGFloat, targetX: CGFloat, flightT: CGFloat, cross: Bool = false) {
+                          x: CGFloat, cross: Bool = false) {
         guard let sink = statsSink else { return }
         // Ground speed in mph from the unit velocities
         let ftps = sqrt(pow(bVel.x * Court.ftPerX, 2) + pow(bVel.z * Court.ftPerZ, 2))
         let mph = ftps / 1.4667
+        let landing = landingPoint()
+        let didCross = type == .dink ? x * landing.x < 0 : cross
         sink("shot n=\(n) type=\(type.rawValue) side=\(facing > 0 ? "N" : "F") " +
              "stance=\(stance) x=\(String(format: "%.2f", x)) " +
-             "tx=\(String(format: "%.2f", targetX)) mph=\(String(format: "%.0f", mph)) " +
-             "t=\(String(format: "%.2f", flightT)) cross=\(cross ? 1 : 0)")
+             "tx=\(String(format: "%.2f", landing.x)) tz=\(String(format: "%.2f", landing.z)) " +
+             "mph=\(String(format: "%.0f", mph)) " +
+             "t=\(String(format: "%.2f", landingTime())) cross=\(didCross ? 1 : 0)")
     }
 
     // MARK: - Helpers

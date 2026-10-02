@@ -75,7 +75,7 @@ class PickleballScreensaverView: ScreenSaverView {
     func applyTheme(_ t: Theme) {
         theme = t
         bgScaledCache = nil       // wallpaper participation differs per theme
-        tintedPaddleCache = nil   // sprite tint differs per theme
+        tintedPaddleCache.removeAll()
         setNeedsDisplay(bounds)
     }
 
@@ -95,9 +95,20 @@ class PickleballScreensaverView: ScreenSaverView {
     private var accentYellow: NSColor { theme.accent }
 
     // Turntable spin — a full 360° yaw of the scene every minute on the minute
-    private var courtYaw: CGFloat = 0     // current angle, rad
+    private(set) var courtYaw: CGFloat = 0
     private var spinT: CGFloat = -1       // -1 = idle, else 0..1 progress
-    private let spinDuration: CGFloat = 6.0
+    var courtMotion: CourtMotion = .slow {
+        didSet { fitCache = nil; spinT = -1; courtYaw = 0 }
+    }
+    var previewYaw: CGFloat? {
+        didSet { if (oldValue == nil) != (previewYaw == nil) { fitCache = nil } }
+    }
+    var previewDate: Date?
+    var ambientEnabled = true
+    var rallyEvents: [RallyEvent] { engine.frameEvents }
+    var ballPosition: Vec3 { engine.ball }
+    private var cameraScale: CGFloat = 1
+    private var cameraScaleTarget: CGFloat = 1
     private var lastMinuteMark = -1       // -1 = unseeded (minute 0 is a real value in the harness)
 
     // Ambient wallpaper ghosts (paddle spins, ball rolls by at random times)
@@ -131,6 +142,7 @@ class PickleballScreensaverView: ScreenSaverView {
         animationTimeInterval = 1.0 / 60.0
         wantsLayer = true
         theme = Theme.named(ThemeSettings.load().theme)
+        courtMotion = MotionSettings.load().courtMotion
         engine.setFormat(GameFormat(rawValue: MatchSettings.load().format) ?? .doubles)
         let drillSettings = DrillSettings.load()
         drillEnabled = drillSettings.drillEnabled
@@ -178,64 +190,112 @@ class PickleballScreensaverView: ScreenSaverView {
 
     // Focal length and principal point fitted so the court apron fills the frame,
     // leaving the bottom of the screen clear for the clock/calendar overlays.
-    private var fitCache: (size: CGSize, focal: CGFloat, xOff: CGFloat, yOff: CGFloat)?
+    var sceneRect: CGRect {
+        let rail = railMetrics(bounds)
+        let unit = overlayUnit(bounds)
+        let left = rail.x + rail.width + unit * 0.025
+        return CGRect(x: left, y: bounds.height * 0.25,
+                      width: max(1, bounds.width - unit * 0.05 - left),
+                      height: max(1, bounds.height * 0.75 - unit * 0.05))
+    }
+
+    private var rotates: Bool {
+        courtMotion != .still && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    private var fitCache: (size: CGSize, rotates: Bool, reduced: Bool, focal: CGFloat, xOff: CGFloat, yOff: CGFloat)?
     private var fit: (focal: CGFloat, xOff: CGFloat, yOff: CGFloat) {
-        if let c = fitCache, c.size == bounds.size { return (c.focal, c.xOff, c.yOff) }
+        let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if let c = fitCache, c.size == bounds.size, c.rotates == rotates, c.reduced == reduced {
+            return (c.focal, c.xOff, c.yOff)
+        }
         var minX = CGFloat.infinity, maxX = -CGFloat.infinity
         var minY = CGFloat.infinity, maxY = -CGFloat.infinity
-        // Framing is always the unrotated view so a mid-spin resize can't bake
-        // a rotated fit (the court would zoom/jitter for the rest of the spin)
-        let yaw = courtYaw; courtYaw = 0
+        var lobTop = -CGFloat.infinity
+        // Fit the full turntable envelope once, not the current yaw, to avoid zoom pumping.
+        let yaw = courtYaw
         defer { courtYaw = yaw }
-        for (wx, wz) in [(-1.15, -0.05), (1.15, -0.05), (1.15, 1.05), (-1.15, 1.05)] {
-            let u = unitProj(CGFloat(wx), CGFloat(wz), 0)
-            minX = min(minX, u.x); maxX = max(maxX, u.x)
-            minY = min(minY, u.y); maxY = max(maxY, u.y)
+        for degree in 0..<(rotates || previewYaw != nil ? 360 : 1) {
+            courtYaw = CGFloat(degree) * .pi / 180
+            for (wx, wz, wy) in [(-1.25, -0.08, 0.0), (1.25, -0.08, 0.0),
+                                 (1.25, 1.08, 0.0), (-1.25, 1.08, 0.0),
+                                 (-1.15, -0.055, 0.4), (1.15, -0.055, 0.4),
+                                 (-1.15, 1.055, 0.4), (1.15, 1.055, 0.4)] {
+                let u = unitProj(CGFloat(wx), CGFloat(wz), CGFloat(wy))
+                minX = min(minX, u.x); maxX = max(maxX, u.x)
+                minY = min(minY, u.y); maxY = max(maxY, u.y)
+            }
+            if reduced {
+                for (wx, wz) in [(-0.8, 0.35), (0.8, 0.35), (-0.8, 0.65), (0.8, 0.65)] {
+                    lobTop = max(lobTop, unitProj(CGFloat(wx), CGFloat(wz), 2.1).y)
+                }
+            }
         }
-        let W = bounds.width, H = bounds.height
-        let focal = min(W * 0.58 / (maxX - minX), H * 0.92 / (maxY - minY))
-        let xOff = W * 0.66 - focal * (minX + maxX) / 2   // court on the right; overlays own the left column
-        let yOff = H * 0.51 - focal * (minY + maxY) / 2
-        fitCache = (bounds.size, focal, xOff, yOff)
+        let area = sceneRect
+        var focal = min(area.width / (maxX - minX), area.height / (maxY - minY))
+        if reduced {
+            focal = min(focal, (bounds.height - overlayUnit(bounds) * 0.02 - area.midY) /
+                        (lobTop - (minY + maxY) / 2))
+        }
+        let xOff = area.midX - focal * (minX + maxX) / 2
+        let yOff = area.midY - focal * (minY + maxY) / 2
+        fitCache = (bounds.size, rotates, reduced, focal, xOff, yOff)
         return (focal, xOff, yOff)
     }
 
     // Pixels per foot for sprite sizing at a given court position (at floor level)
     private func ppf(atWx wx: CGFloat, atWz wz: CGFloat) -> CGFloat {
-        fit.focal / unitProj(wx, wz, 0).depth
+        fit.focal * cameraScale / unitProj(wx, wz, 0).depth
     }
 
     private func proj(_ wx: CGFloat, _ wz: CGFloat, _ wy: CGFloat) -> CGPoint {
         let u = unitProj(wx, wz, wy)
         let f = fit
-        return CGPoint(x: f.xOff + f.focal * u.x, y: f.yOff + f.focal * u.y)
+        let center = sceneRect
+        return CGPoint(x: center.midX + (f.xOff + f.focal * u.x - center.midX) * cameraScale,
+                       y: center.midY + (f.yOff + f.focal * u.y - center.midY) * cameraScale)
     }
 
     private func proj(_ v: Vec3) -> CGPoint { proj(v.x, v.z, v.y) }
+
+    func projectedPoint(_ v: Vec3) -> CGPoint { proj(v) }
+
+    func isBehindNet(_ v: Vec3) -> Bool {
+        let cameraL = camPos.l * cos(courtYaw) + camPos.w * sin(courtYaw)
+        return (v.z - 0.5) * cameraL < 0
+    }
 
     // MARK: - Animation loop
 
     override func animateOneFrame() {
         let now = Date().timeIntervalSinceReferenceDate
-        let dt: CGFloat = lastFrameTime == 0 ? 1/60.0 : min(CGFloat(now - lastFrameTime), 0.05)
-        lastFrameTime = now
+        let tick = ProcessInfo.processInfo.systemUptime
+        let dt: CGFloat = lastFrameTime == 0 ? 1/60.0 : min(CGFloat(tick - lastFrameTime), 0.05)
+        lastFrameTime = tick
         step(now: now, dt: dt)
     }
 
     // One frame of simulation, split from animateOneFrame so the offscreen
     // preview harness (scripts/preview) can drive a synthetic clock
     func step(now: TimeInterval, dt: CGFloat) {
-        updateGhosts(dt: dt)
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if ambientEnabled && !reduceMotion { updateGhosts(dt: dt) }
+        else { ghosts.removeAll() }
 
         // Turntable spin: kick off at every wall-clock minute boundary
         let minuteMark = Int(now / 60)
         if lastMinuteMark == -1 { lastMinuteMark = minuteMark }   // no spin at launch
-        if minuteMark != lastMinuteMark { lastMinuteMark = minuteMark; spinT = 0 }
+        if minuteMark != lastMinuteMark {
+            lastMinuteMark = minuteMark
+            if rotates { spinT = 0 }
+        }
+        if !rotates { spinT = -1; courtYaw = 0 }
         if spinT >= 0 {
-            spinT += dt / spinDuration
+            spinT += dt / courtMotion.duration
             if spinT >= 1 { spinT = -1; courtYaw = 0 }
             else { courtYaw = 2 * .pi * smoothstep(spinT) }
         }
+        if let previewYaw { courtYaw = previewYaw }
 
         // Overlay content keeps updating even during the fault pause
         weatherProvider?.updateIfNeeded()
@@ -248,7 +308,49 @@ class PickleballScreensaverView: ScreenSaverView {
         }
 
         engine.step(dt: dt)
+        updateCameraScale(dt: dt)
         setNeedsDisplay(bounds)
+    }
+
+    private func scaleToKeepVisible(_ point: Vec3) -> CGFloat {
+        let u = unitProj(point.x, point.z, point.y)
+        let f = fit, center = sceneRect
+        let dx = f.xOff + f.focal * u.x - center.midX
+        let dy = f.yOff + f.focal * u.y - center.midY
+        let margin = overlayUnit(bounds) * 0.02
+        var scale: CGFloat = 1
+        if dx > 0 { scale = min(scale, (bounds.maxX - margin - center.midX) / dx) }
+        if dx < 0 { scale = min(scale, (center.midX - bounds.minX - margin) / -dx) }
+        if dy > 0 { scale = min(scale, (bounds.maxY - margin - center.midY) / dy) }
+        if dy < 0 { scale = min(scale, (center.midY - bounds.minY - margin) / -dy) }
+        return max(0.1, scale)
+    }
+
+    private func updateCameraScale(dt: CGFloat) {
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            cameraScale = 1; cameraScaleTarget = 1
+            return
+        }
+        for event in engine.frameEvents {
+            guard case .contact(let contact) = event else { continue }
+            cameraScaleTarget = 1
+            if contact.type == .lob {
+                let v = contact.velocity, origin = contact.ball
+                let total = (v.y + sqrt(v.y * v.y - 2 * engine.gravity * origin.y)) / -engine.gravity
+                for i in 0...24 {
+                    let t = total * CGFloat(i) / 24
+                    let point = Vec3(x: origin.x + v.x * t,
+                                     y: origin.y + v.y * t + engine.gravity * t * t / 2,
+                                     z: origin.z + v.z * t)
+                    cameraScaleTarget = min(cameraScaleTarget, scaleToKeepVisible(point))
+                }
+            }
+        }
+        if engine.phase == .betweenPoints { cameraScaleTarget = 1 }
+        cameraScale += (cameraScaleTarget - cameraScale) * (1 - exp(-dt * 5))
+        if engine.phase != .betweenPoints && engine.phase != .dead {
+            cameraScale = min(cameraScale, scaleToKeepVisible(engine.ball))
+        }
     }
 
     // MARK: - Ambient wallpaper ghosts
@@ -332,31 +434,31 @@ class PickleballScreensaverView: ScreenSaverView {
 
     override func draw(_ rect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let rect = bounds
         drawBackground(ctx: ctx, rect: rect)
         drawGhosts(ctx: ctx)
         drawCourt(ctx: ctx)
         drawBallShadow(ctx: ctx)
-        drawTrail(ctx: ctx)
+        drawTrail(ctx: ctx, behindNet: true)
 
-        // Painter's algorithm: sprites beyond the net plane (wz > 0.5) render first,
-        // then the net, then near-side sprites; each group sorted farthest-first
-        // (index breaks depth ties so partners never flicker in sort order).
         let ball = engine.ball
-        var sprites: [(wz: CGFloat, depth: CGFloat, order: Int, draw: () -> Void)] = [
-            (ball.z, unitProj(ball.x, ball.z, ball.y).depth, -1,
+        var sprites: [(position: Vec3, depth: CGFloat, order: Int, draw: () -> Void)] = [
+            (ball, unitProj(ball.x, ball.z, ball.y).depth, -1,
              { self.drawBall(ctx: ctx) }),
         ]
         for p in engine.players {
-            sprites.append((p.z, unitProj(engine.paddleWx(p), p.z, 0.1).depth, sprites.count,
+            let face = Vec3(x: engine.paddleWx(p), y: p.faceY, z: p.z + p.faceDZ)
+            sprites.append((face, unitProj(face.x, face.z, face.y).depth, sprites.count,
                             { self.drawPaddle(ctx: ctx, state: p, wz: p.z, side: p.facing) }))
         }
-        let byDepth: ((wz: CGFloat, depth: CGFloat, order: Int, draw: () -> Void),
-                      (wz: CGFloat, depth: CGFloat, order: Int, draw: () -> Void)) -> Bool = {
+        let byDepth: ((position: Vec3, depth: CGFloat, order: Int, draw: () -> Void),
+                      (position: Vec3, depth: CGFloat, order: Int, draw: () -> Void)) -> Bool = {
             $0.depth != $1.depth ? $0.depth > $1.depth : $0.order < $1.order
         }
-        for s in sprites.filter({ $0.wz > 0.5 }).sorted(by: byDepth) { s.draw() }
+        for s in sprites.filter({ isBehindNet($0.position) }).sorted(by: byDepth) { s.draw() }
         drawNet(ctx: ctx)
-        for s in sprites.filter({ $0.wz <= 0.5 }).sorted(by: byDepth) { s.draw() }
+        drawTrail(ctx: ctx, behindNet: false)
+        for s in sprites.filter({ !isBehindNet($0.position) }).sorted(by: byDepth) { s.draw() }
 
         // Widget-style left rail: weather / tournaments cards flowing down from
         // the top margin, with drill-of-the-day pinned to the bottom margin.
@@ -399,7 +501,10 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.setFillColor(theme.backgroundBase)
         ctx.fill(rect)
         if theme.usesBackgroundImage, let img = scaledBackground() {
+            ctx.saveGState()
+            ctx.setAlpha(0.48)
             ctx.draw(img, in: bounds)
+            ctx.restoreGState()
             return
         }
         // Radial wash: the fallback when the wallpaper asset is missing, and
@@ -664,10 +769,11 @@ class PickleballScreensaverView: ScreenSaverView {
 
     // MARK: - Trail
 
-    private func drawTrail(ctx: CGContext) {
+    private func drawTrail(ctx: CGContext, behindNet: Bool) {
         let trailPoints = engine.trailPoints
         let count = trailPoints.count
         for (i, t) in trailPoints.enumerated() {
+            guard isBehindNet(t) == behindNet else { continue }
             let frac = CGFloat(i) / CGFloat(count)
             let r = max(minBallPx, ballRFt * ppf(atWx: t.x, atWz: t.z)) * frac
             let p = proj(t)
@@ -764,12 +870,13 @@ class PickleballScreensaverView: ScreenSaverView {
 
     // Theme-tinted paddle sprite, recolored once per theme change (never per
     // frame — four paddles draw at 60 fps)
-    private var tintedPaddleCache: CGImage?
+    private var tintedPaddleCache: [Int: CGImage] = [:]
 
-    private func paddleSprite() -> CGImage? {
+    private func paddleSprite(facing: CGFloat) -> CGImage? {
         guard let base = Self.paddleImage else { return nil }
-        guard let tint = theme.paddleTint else { return base }
-        if let cached = tintedPaddleCache { return cached }
+        let key = facing > 0 ? 0 : 1
+        let tint = theme.teamColor(facing: facing).withAlphaComponent(0.65)
+        if let cached = tintedPaddleCache[key] { return cached }
         guard let bctx = CGContext(data: nil, width: base.width, height: base.height,
                                    bitsPerComponent: 8, bytesPerRow: 0,
                                    space: CGColorSpace(name: CGColorSpace.sRGB)!,
@@ -781,7 +888,7 @@ class PickleballScreensaverView: ScreenSaverView {
         bctx.setFillColor(tint.cgColor)
         bctx.fill(rect)
         guard let img = bctx.makeImage() else { return base }
-        tintedPaddleCache = img
+        tintedPaddleCache[key] = img
         return img
     }
 
@@ -837,14 +944,14 @@ class PickleballScreensaverView: ScreenSaverView {
         // down-screen: face-pinning there leaves the head static and the handle
         // doing the visible swinging.
         let nClLen = max(1e-9, hypot(nx, ny))
-        let anchor = proj(wx, wz, state.faceY)
+        let anchor = proj(wx, wz + state.contactDZ, state.faceY)
         let gripFollow: CGFloat = 0.35   // how much of the depth lunge the hand follows
         let gripPivot = CGPoint(
             x: anchor.x + gripFollow * (face.x - anchor.x) - faceCenterPx * nx / nClLen,
             y: anchor.y + gripFollow * (face.y - anchor.y) - faceCenterPx * ny / nClLen)
         // Blend by how far the raw N dips below the local horizontal: 0 for the
         // near player (bit-identical face-pinning), ~0.9 for the far player.
-        // Both pivots coincide exactly at the contact pose (faceDZ = 0, axis =
+        // Both pivots coincide exactly at the contact pose (faceDZ = contactDZ, axis =
         // clamped N), so the ball always lands on the face center, and the
         // blend stays continuous through the turntable spin.
         let w = nLen > 1e-9 ? min(1, -downAmt / nLen) : 0
@@ -870,13 +977,13 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.setShadow(offset: CGSize(width: 0.05 * hPx, height: -0.06 * hPx),
                       blur: 0.10 * hPx,
                       color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.55))
-        if let img = paddleSprite() {
+        if let img = paddleSprite(facing: side) {
             ctx.interpolationQuality = .high
             ctx.draw(img, in: spriteRect)
         } else {
             // Fallback silhouette so a packaging mistake never hides the paddles
             let handleW = 0.27 * wPx
-            ctx.setFillColor(CGColor(red: 0.17, green: 0.20, blue: 0.21, alpha: 1))
+            ctx.setFillColor(theme.teamColor(facing: side).cgColor)
             ctx.addPath(CGPath(roundedRect: CGRect(x: -handleW / 2, y: spriteRect.minY,
                                                    width: handleW, height: Self.paddlePivotFrac * hPx),
                                cornerWidth: handleW * 0.3, cornerHeight: handleW * 0.3, transform: nil))
@@ -893,12 +1000,15 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private struct Rail { var x, width, pad, corner, gap: CGFloat }
 
+    private func overlayUnit(_ rect: NSRect) -> CGFloat { min(rect.height, rect.width / 1.6) }
+
     private func railMetrics(_ rect: NSRect) -> Rail {
-        Rail(x: rect.height * 0.05,
-             width: min(rect.width * 0.35, rect.height * 0.82),
-             pad: rect.height * 0.018,
-             corner: rect.height * 0.022,
-             gap: rect.height * 0.02)
+        let unit = overlayUnit(rect)
+        return Rail(x: unit * 0.05,
+                    width: min(rect.width * 0.35, unit * 0.82),
+                    pad: unit * 0.018,
+                    corner: unit * 0.022,
+                    gap: unit * 0.02)
     }
 
     // SF Rounded variant of the system font; falls back to plain SF
@@ -971,10 +1081,11 @@ class PickleballScreensaverView: ScreenSaverView {
     // MARK: - Clock (bottom-right corner, no card)
 
     private func drawCourtClock(ctx: CGContext, rect: NSRect) {
-        let now = Date()
-        let tSize = rect.height * 0.09
-        let dSize = rect.height * 0.030
-        let margin = rect.height * 0.05
+        let now = previewDate ?? Date()
+        let unit = overlayUnit(rect)
+        let tSize = unit * 0.060
+        let dSize = unit * 0.023
+        let margin = unit * 0.05
 
         let timeAS = NSAttributedString(string: timeFmt.string(from: now),
                                         attributes: textAttrs(tSize, .bold, alpha: 0.95, monoDigits: true))
@@ -996,12 +1107,12 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func drawWeather(ctx: CGContext, rect: NSRect, rail: Rail, top: CGFloat) -> CGFloat {
         guard let snap = weatherProvider?.snapshot else { return top }
-        let kSize = rect.height * 0.016
+        let kSize = overlayUnit(rect) * 0.016
         let kickerH = kSize * 1.6
-        let bigSize = rect.height * 0.052
-        let rowSize = rect.height * 0.020
+        let bigSize = overlayUnit(rect) * 0.052
+        let rowSize = overlayUnit(rect) * 0.020
         let rowH = rowSize * 1.6
-        let badgeH = rect.height * 0.032
+        let badgeH = overlayUnit(rect) * 0.032
 
         let rowCount: CGFloat = snap.tomorrowMax != nil ? 4 : 3
         let contentH = kickerH + bigSize * 1.35 + rowH * rowCount + rail.pad * 0.8 + badgeH
@@ -1107,10 +1218,10 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func drawTournaments(ctx: CGContext, rect: NSRect, rail: Rail, top: CGFloat) -> CGFloat {
         guard let provider = tournamentProvider else { return top }
-        guard rail.width > rect.height * 0.12 else { return top }
-        let kSize = rect.height * 0.016
+        guard rail.width > overlayUnit(rect) * 0.12 else { return top }
+        let kSize = overlayUnit(rect) * 0.016
         let kickerH = kSize * 1.6
-        let rowSize = rect.height * 0.020
+        let rowSize = overlayUnit(rect) * 0.020
         let lineH = rowSize * 1.6
         let maxW = rail.width - rail.pad * 2
 
@@ -1253,13 +1364,14 @@ class PickleballScreensaverView: ScreenSaverView {
     // MARK: - Drill of the day card (pinned to the bottom margin)
 
     private func drawDrill(ctx: CGContext, rect: NSRect, rail: Rail, bottom: CGFloat) {
-        guard drillEnabled, let drill = PickleballDrills.drillOfTheDay(level: drillLevel) else { return }
+        guard drillEnabled, let drill = PickleballDrills.drillOfTheDay(level: drillLevel,
+                                                                   date: previewDate ?? Date()) else { return }
 
-        let kSize = rect.height * 0.016
+        let kSize = overlayUnit(rect) * 0.016
         let kickerH = kSize * 1.6
-        let titleSize = rect.height * 0.022
-        let metaSize = rect.height * 0.016
-        let bodySize = rect.height * 0.019
+        let titleSize = overlayUnit(rect) * 0.022
+        let metaSize = overlayUnit(rect) * 0.016
+        let bodySize = overlayUnit(rect) * 0.019
         let maxW = rail.width - rail.pad * 2
 
         let titleAS = NSAttributedString(string: drill.name,
@@ -1304,24 +1416,25 @@ class PickleballScreensaverView: ScreenSaverView {
                     options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
     }
 
-    // MARK: - Scoreboard (bottom-center glass pill; singles side-out scoring)
+    // MARK: - Scoreboard (stable team identities, independent of camera yaw)
 
     private func drawScoreboard(ctx: CGContext, rect: NSRect) {
-        let size = rect.height * 0.030
-        let y = rect.height * 0.035
+        let size = overlayUnit(rect) * 0.038
+        let y = rect.height * 0.18
 
         let scoreAttrs = textAttrs(size, .semibold, alpha: 0.90, monoDigits: true)
-        let labelAttrs = textAttrs(size * 0.52, .semibold, alpha: 0.45, kern: size * 0.05)
 
         let score = NSMutableAttributedString()
-        score.append(NSAttributedString(string: "NEAR  ", attributes: labelAttrs))
+        score.append(NSAttributedString(string: "TEAM A  ",
+            attributes: textAttrs(size * 0.50, .semibold, alpha: 0.90, color: theme.teamA)))
         score.append(NSAttributedString(string: "\(engine.nearScore)  –  \(engine.farScore)", attributes: scoreAttrs))
-        score.append(NSAttributedString(string: "  FAR", attributes: labelAttrs))
+        score.append(NSAttributedString(string: "  TEAM B",
+            attributes: textAttrs(size * 0.50, .semibold, alpha: 0.90, color: theme.teamB)))
         let sz = score.size()
-        let x0 = rect.midX - sz.width / 2
+        let x0 = sceneRect.midX - sz.width / 2
 
         // Glass pill behind the score line, matching the rail cards
-        let padX = size * 0.9, padY = size * 0.42
+        let padX = size * 1.5, padY = size * 0.42
         let pill = CGRect(x: x0 - padX, y: y - padY, width: sz.width + padX * 2, height: sz.height + padY * 2)
         drawGlassPanel(ctx, rect: pill, corner: pill.height / 2, shadowBlur: 0)
 
@@ -1349,7 +1462,7 @@ class PickleballScreensaverView: ScreenSaverView {
                                            attributes: textAttrs(size * 0.45, .semibold, alpha: 0.40,
                                                                  kern: size * 0.04))
             let gsz = games.size()
-            games.draw(at: NSPoint(x: rect.midX - gsz.width / 2, y: pill.maxY + gsz.height * 0.35))
+            games.draw(at: NSPoint(x: sceneRect.midX - gsz.width / 2, y: pill.minY - gsz.height * 1.3))
         }
 
         // Brief GAME banner when a game is won
@@ -1359,7 +1472,7 @@ class PickleballScreensaverView: ScreenSaverView {
                                             attributes: textAttrs(size * 1.8, .bold, alpha: pulse,
                                                                   color: accentYellow))
             let bsz = banner.size()
-            banner.draw(at: NSPoint(x: rect.midX - bsz.width / 2, y: pill.maxY + sz.height * 0.9))
+            banner.draw(at: NSPoint(x: sceneRect.midX - bsz.width / 2, y: pill.maxY + sz.height * 0.25))
         }
     }
 

@@ -2,8 +2,8 @@ import AppKit
 import ScreenSaver
 
 // MARK: - Theme
-// Every color the renderer uses, in one struct. `classic` reproduces the
-// original look exactly; `blacklight` is pure black with neon green, pink,
+// Every color the renderer uses, in one struct. `classic` uses a muted court
+// wallpaper; `blacklight` is pure black with neon green, pink,
 // and orange under UV.
 
 struct Theme {
@@ -36,7 +36,8 @@ struct Theme {
     var accent: NSColor
     // Misc
     var ghostFill: CGColor
-    var paddleTint: NSColor?        // sprite recolor (alpha = tint strength); nil = as authored
+    var teamA: NSColor
+    var teamB: NSColor
     var glowStrength: CGFloat       // 0 = no neon glow pass; 1 = full blacklight glow
 
     static let classic = Theme(
@@ -59,11 +60,12 @@ struct Theme {
         backgroundGlowOuter: CGColor(red: 0.05, green: 0.09, blue: 0.10, alpha: 0),
         glassFill:    CGColor(red: 0, green: 0, blue: 0, alpha: 0.75),
         glassStroke:  CGColor(red: 1, green: 1, blue: 1, alpha: 0.16),
-        cardFill:     CGColor(red: 0.07, green: 0.13, blue: 0.15, alpha: 0.48),
+        cardFill:     CGColor(red: 0.07, green: 0.13, blue: 0.15, alpha: 0.88),
         textPrimary:  .white,
         accent:       NSColor(calibratedRed: 0.96, green: 0.82, blue: 0.05, alpha: 1),
         ghostFill:    CGColor(red: 0.12, green: 0.24, blue: 0.23, alpha: 1),
-        paddleTint:   nil,
+        teamA:        NSColor(calibratedRed: 0.25, green: 0.80, blue: 1.0, alpha: 1),
+        teamB:        NSColor(calibratedRed: 1.0, green: 0.48, blue: 0.32, alpha: 1),
         glowStrength: 0
     )
 
@@ -89,16 +91,45 @@ struct Theme {
         backgroundGlowOuter: CGColor(red: 0, green: 0, blue: 0, alpha: 0),
         glassFill:    CGColor(red: 0, green: 0, blue: 0, alpha: 0.82),
         glassStroke:  CGColor(red: 0.25, green: 1.0, blue: 0.40, alpha: 0.35),
-        cardFill:     CGColor(red: 0.02, green: 0.0, blue: 0.05, alpha: 0.55),
+        cardFill:     CGColor(red: 0.02, green: 0.0, blue: 0.05, alpha: 0.88),
         textPrimary:  .white,
         accent:       NSColor(calibratedRed: 1.0, green: 0.55, blue: 0.10, alpha: 1),
         ghostFill:    CGColor(red: 0.10, green: 0.02, blue: 0.12, alpha: 1),
-        paddleTint:   NSColor(calibratedRed: 1.0, green: 0.3, blue: 0.8, alpha: 0.35),
+        teamA:        NSColor(calibratedRed: 0.15, green: 0.90, blue: 1.0, alpha: 1),
+        teamB:        NSColor(calibratedRed: 1.0, green: 0.30, blue: 0.78, alpha: 1),
         glowStrength: 1
     )
 
     static func named(_ name: String) -> Theme {
         name == "blacklight" ? .blacklight : .classic
+    }
+
+    func teamColor(facing: CGFloat) -> NSColor {
+        facing > 0 ? teamA : teamB
+    }
+}
+
+enum CourtMotion: String, CaseIterable {
+    case standard, slow, still
+
+    var duration: CGFloat { self == .standard ? 6 : 12 }
+}
+
+struct MotionSettings {
+    var courtMotion: CourtMotion = .slow
+
+    private static var defaults: ScreenSaverDefaults? {
+        ScreenSaverDefaults(forModuleWithName: "com.pickleball.screensaver")
+    }
+
+    static func load() -> MotionSettings {
+        MotionSettings(courtMotion: CourtMotion(rawValue: defaults?.string(forKey: "CourtMotion") ?? "") ?? .slow)
+    }
+
+    func save() {
+        guard let d = Self.defaults else { return }
+        d.set(courtMotion.rawValue, forKey: "CourtMotion")
+        d.synchronize()
     }
 }
 

@@ -1,0 +1,32 @@
+name: Regression checks
+
+on:
+  pull_request:
+    paths:
+      - 'PickleballScreensaver/**'
+      - 'scripts/preview/**'
+      - 'scripts/tests/**'
+      - 'Makefile'
+      - '.github/workflows/regressions.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'PickleballScreensaver/**'
+      - 'scripts/preview/**'
+      - 'scripts/tests/**'
+      - 'Makefile'
+      - '.github/workflows/regressions.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  regressions:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check simulation and camera regressions
+        run: make test
+      - name: Build universal screensaver
+        run: make
