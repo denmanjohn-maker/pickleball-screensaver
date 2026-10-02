@@ -53,8 +53,8 @@ class PickleballScreensaverView: ScreenSaverView {
     var lobProb:         CGFloat { get { engine.lobProb }         set { engine.lobProb = newValue } }
     var runAroundProb:   CGFloat { get { engine.runAroundProb }   set { engine.runAroundProb = newValue } }
     var simStats: ((String) -> Void)? { get { engine.statsSink } set { engine.statsSink = newValue } }
-    func reseed(_ seed: UInt64) { engine.reseed(seed) }
-    func setFormat(_ f: GameFormat) { engine.setFormat(f) }
+    func reseed(_ seed: UInt64) { engine.reseed(seed); art.reset() }
+    func setFormat(_ f: GameFormat) { engine.setFormat(f); art.reset() }
 
     // Camera — 10 ft behind the near-left court corner (on the center-corner diagonal,
     // extended), looking down 45° at the court center
@@ -69,11 +69,18 @@ class PickleballScreensaverView: ScreenSaverView {
     private let ballRFt: CGFloat = 0.121 * 3.5               // regulation 1.45 in radius, drawn 3.5x
     private var minBallPx: CGFloat { max(2.0, bounds.height * 0.004) }   // keep the ball visible at the far court
 
-    // Every drawing color comes from the active theme (Classic / Black Light)
+    private(set) var appearancePreset: AppearancePreset = .classic
+    private let art = ArtEffects()
+    private var artFrameNumber = 0
+
+    // Every drawing color comes from the active appearance's palette.
     private var theme: Theme = .classic
 
-    func applyTheme(_ t: Theme) {
-        theme = t
+    func applyAppearance(_ preset: AppearancePreset) {
+        appearancePreset = preset
+        theme = preset.theme
+        art.reset()
+        ghosts.removeAll()
         bgScaledCache = nil       // wallpaper participation differs per theme
         tintedPaddleCache.removeAll()
         setNeedsDisplay(bounds)
@@ -166,7 +173,7 @@ class PickleballScreensaverView: ScreenSaverView {
     private func setup() {
         animationTimeInterval = 1.0 / 60.0
         wantsLayer = true
-        theme = Theme.named(ThemeSettings.load().theme)
+        applyAppearance(ThemeSettings.load().appearance)
         courtMotion = MotionSettings.load().courtMotion
         engine.setFormat(GameFormat(rawValue: MatchSettings.load().format) ?? .doubles)
         let drillSettings = DrillSettings.load()
@@ -333,8 +340,30 @@ class PickleballScreensaverView: ScreenSaverView {
         }
 
         engine.step(dt: dt)
+        updateArt(dt: dt)
         updateCameraScale(dt: dt)
         setNeedsDisplay(bounds)
+    }
+
+    private func updateArt(dt: CGFloat) {
+        guard appearancePreset == .livingCourt || appearancePreset == .rallyPainting else { return }
+        artFrameNumber += 1
+        let events: [ArtEvent] = engine.frameEvents.map {
+            switch $0 {
+            case .contact(let contact): return .contact(position: contact.ball, facing: contact.player.facing)
+            case .bounce(let point): return .bounce(point)
+            }
+        }
+        art.update(preset: appearancePreset,
+                   frame: ArtFrame(number: artFrameNumber, events: events, ball: engine.ball,
+                                   live: engine.phase != .dead && engine.phase != .betweenPoints,
+                                   games: engine.nearGames + engine.farGames), dt: dt)
+    }
+
+    private func drawContactHalos(ctx: CGContext, behindNet: Bool) {
+        guard appearancePreset == .livingCourt else { return }
+        art.drawHalos(ctx, theme: theme, behindNet: behindNet, project: proj,
+                      pixelsPerFoot: { self.ppf(atWx: $0.x, atWz: $0.z) }, isBehindNet: isBehindNet)
     }
 
     private func scaleToKeepVisible(_ point: Vec3) -> CGFloat {
@@ -465,6 +494,7 @@ class PickleballScreensaverView: ScreenSaverView {
         drawCourt(ctx: ctx)
         drawBallShadow(ctx: ctx)
         drawTrail(ctx: ctx, behindNet: true)
+        drawContactHalos(ctx: ctx, behindNet: true)
 
         let ball = engine.ball
         var sprites: [(position: Vec3, depth: CGFloat, order: Int, draw: () -> Void)] = [
@@ -483,6 +513,7 @@ class PickleballScreensaverView: ScreenSaverView {
         for s in sprites.filter({ isBehindNet($0.position) }).sorted(by: byDepth) { s.draw() }
         drawNet(ctx: ctx)
         drawTrail(ctx: ctx, behindNet: false)
+        drawContactHalos(ctx: ctx, behindNet: false)
         for s in sprites.filter({ !isBehindNet($0.position) }).sorted(by: byDepth) { s.draw() }
 
         // Widget-style left rail: weather / tournaments cards flowing down from
@@ -525,6 +556,10 @@ class PickleballScreensaverView: ScreenSaverView {
     private func drawBackground(ctx: CGContext, rect: NSRect) {
         ctx.setFillColor(theme.backgroundBase)
         ctx.fill(rect)
+        if appearancePreset == .inkPaper {
+            ArtTextures.drawPaper(ctx, in: bounds)
+            return
+        }
         if theme.usesBackgroundImage, let img = scaledBackground() {
             ctx.saveGState()
             ctx.setAlpha(0.48)
@@ -572,6 +607,7 @@ class PickleballScreensaverView: ScreenSaverView {
     private var ghostFill: CGColor { theme.ghostFill }
 
     private func drawGhosts(ctx: CGContext) {
+        guard appearancePreset == .classic || appearancePreset == .blacklight || appearancePreset == .livingCourt else { return }
         for g in ghosts where g.alpha > 0 {
             ctx.saveGState()
             ctx.setAlpha(g.alpha * 0.5)
@@ -630,7 +666,7 @@ class PickleballScreensaverView: ScreenSaverView {
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: bounds.height * 0.008, height: -bounds.height * 0.022),
                       blur: bounds.height * 0.05,
-                      color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.85))
+                      color: CGColor(red: 0, green: 0, blue: 0, alpha: appearancePreset == .inkPaper ? 0.18 : 0.85))
         fillQuad(ctx,
                  proj(-1, 0, 0), proj(1, 0, 0),
                  proj(1, 1, 0),  proj(-1, 1, 0),
@@ -673,6 +709,12 @@ class PickleballScreensaverView: ScreenSaverView {
             tx += 0.07
         }
 
+        if appearancePreset == .inkPaper {
+            ArtTextures.drawCourt(ctx, theme: theme, project: proj)
+        } else {
+            art.drawFloor(ctx, preset: appearancePreset, theme: theme, project: proj,
+                          courtCorners: [proj(-1, 0, 0), proj(1, 0, 0), proj(1, 1, 0), proj(-1, 1, 0)])
+        }
         ctx.restoreGState()
 
         // Court lines — under black light they glow, one blur pass for the
@@ -796,6 +838,13 @@ class PickleballScreensaverView: ScreenSaverView {
 
     private func drawTrail(ctx: CGContext, behindNet: Bool) {
         let trailPoints = engine.trailPoints
+        if appearancePreset == .inkPaper {
+            ArtTextures.drawInkTrail(ctx, points: trailPoints, color: theme.ballTrail, behindNet: behindNet,
+                                     project: proj, radius: {
+                max(self.minBallPx, self.ballRFt * self.ppf(atWx: $0.x, atWz: $0.z))
+            }, isBehindNet: isBehindNet)
+            return
+        }
         let count = trailPoints.count
         for (i, t) in trailPoints.enumerated() {
             guard isBehindNet(t) == behindNet else { continue }
@@ -1120,7 +1169,7 @@ class PickleballScreensaverView: ScreenSaverView {
 
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: 0, height: -tSize * 0.03), blur: tSize * 0.12,
-                      color: CGColor(red: 0, green: 0, blue: 0, alpha: 0.60))
+                      color: CGColor(red: 0, green: 0, blue: 0, alpha: appearancePreset == .inkPaper ? 0 : 0.60))
         let dateY = margin
         dateAS.draw(at: NSPoint(x: rect.width - margin - dateSz.width, y: dateY))
         let timeY = dateY + dSize * 1.5
@@ -1212,7 +1261,7 @@ class PickleballScreensaverView: ScreenSaverView {
     private func drawPlayBadge(_ ctx: CGContext, verdict: WeatherSnapshot.PlayVerdict,
                                at origin: CGPoint, height: CGFloat, textSize: CGFloat) {
         let good = verdict != .indoor
-        let color = good ? accentYellow : NSColor.white
+        let color = good ? accentYellow : theme.textPrimary
         let label = NSAttributedString(string: verdict.label,
                                        attributes: textAttrs(textSize, .bold, alpha: 0.95,
                                                              color: color, kern: textSize * 0.10))
@@ -1525,7 +1574,9 @@ class PickleballScreensaverView: ScreenSaverView {
 
     // MARK: - ScreenSaverView
 
-    private lazy var configureController = ConfigureSheetController()
+    private lazy var configureController = ConfigureSheetController(onAppearanceChanged: { [weak self] preset in
+        self?.applyAppearance(preset)
+    })
 
     override var hasConfigureSheet: Bool { true }
     override var configureSheet: NSWindow? {

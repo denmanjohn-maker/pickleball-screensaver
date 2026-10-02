@@ -16,8 +16,14 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
     private var matchSettings = MatchSettings.load()
     private var motionSettings = MotionSettings.load()
     private var pendingPlace: GeocodedPlace?
+    private let onAppearanceChanged: ((AppearancePreset) -> Void)?
 
-    private let themePopup = NSPopUpButton()
+    init(onAppearanceChanged: ((AppearancePreset) -> Void)? = nil) {
+        self.onAppearanceChanged = onAppearanceChanged
+        super.init()
+    }
+
+    private let appearancePopup = NSPopUpButton()
     private let formatPopup = NSPopUpButton()
     private let motionPopup = NSPopUpButton()
     private let weatherCheck = NSButton(checkboxWithTitle: "Show weather", target: nil, action: nil)
@@ -38,8 +44,7 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
                                            "4.0 Advanced", "5.0 Pro"]
     private static let tournamentWindowChoices = [1, 3]
     private static let tournamentWindowTitles = ["Next 1 month", "Next 3 months"]
-    private static let themeChoices = ["classic", "blacklight"]
-    private static let themeTitles = ["Classic", "Black Light"]
+    private static let appearances = AppearancePreset.allCases
     private static let formatChoices = ["doubles", "singles"]
     private static let formatTitles = ["Doubles", "Singles"]
     private static let motionChoices: [CourtMotion] = [.slow, .standard, .still]
@@ -58,7 +63,7 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         matchSettings = MatchSettings.load()
         motionSettings = MotionSettings.load()
         pendingPlace = nil
-        themePopup.selectItem(at: Self.themeChoices.firstIndex(of: themeSettings.theme) ?? 0)
+        appearancePopup.selectItem(at: Self.appearances.firstIndex(of: themeSettings.appearance) ?? 0)
         formatPopup.selectItem(at: Self.formatChoices.firstIndex(of: matchSettings.format) ?? 0)
         motionPopup.selectItem(at: Self.motionChoices.firstIndex(of: motionSettings.courtMotion) ?? 0)
         weatherCheck.state = weatherSettings.enabled ? .on : .off
@@ -88,7 +93,7 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
             b.target = self
             b.action = #selector(unitChanged(_:))
         }
-        themePopup.addItems(withTitles: Self.themeTitles)
+        appearancePopup.addItems(withTitles: Self.appearances.map(\.title))
         formatPopup.addItems(withTitles: Self.formatTitles)
         motionPopup.addItems(withTitles: Self.motionTitles)
         drillLevelPopup.addItems(withTitles: Self.drillLevelTitles)
@@ -121,8 +126,8 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
 
         let stack = NSStackView(views: [
             gameHeader,
-            indent(hstack([NSTextField(labelWithString: "Theme:"), themePopup,
-                           NSTextField(labelWithString: "Format:"), formatPopup])),
+            indent(hstack([NSTextField(labelWithString: "Appearance:"), appearancePopup])),
+            indent(hstack([NSTextField(labelWithString: "Format:"), formatPopup])),
             indent(hstack([NSTextField(labelWithString: "Court motion:"), motionPopup])),
             extrasHeader,
             weatherCheck,
@@ -247,12 +252,13 @@ final class ConfigureSheetController: NSObject, NSTextFieldDelegate {
         drillSettings.drillEnabled = drillCheck.state == .on
         drillSettings.drillLevel = Self.drillLevelChoices[max(0, drillLevelPopup.indexOfSelectedItem)]
         drillSettings.save()
-        themeSettings.theme = Self.themeChoices[max(0, themePopup.indexOfSelectedItem)]
+        themeSettings.appearance = Self.appearances[max(0, appearancePopup.indexOfSelectedItem)]
         themeSettings.save()
         matchSettings.format = Self.formatChoices[max(0, formatPopup.indexOfSelectedItem)]
         matchSettings.save()
         motionSettings.courtMotion = Self.motionChoices[max(0, motionPopup.indexOfSelectedItem)]
         motionSettings.save()
+        onAppearanceChanged?(themeSettings.appearance)
         dismiss(.OK)
     }
 

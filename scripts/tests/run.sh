@@ -8,9 +8,18 @@ compile() {
     -framework Cocoa -framework ScreenSaver \
     PickleballScreensaver/*.swift "$1" -o "$2"
 }
+if [[ "${1:-}" == --art-only ]]; then
+  compile scripts/tests/art/main.swift "$work/art"
+  "$work/art"
+  exit
+fi
 if [[ "${1:-}" != --preview-only ]]; then
   compile scripts/tests/main.swift "$work/regressions"
   "$work/regressions" "$@"
+fi
+if [[ $# == 0 ]]; then
+  compile scripts/tests/art/main.swift "$work/art"
+  "$work/art"
 fi
 if [[ "${1:-}" != --engine-only && "${1:-}" != --camera-only ]]; then
   compile scripts/preview/main.swift "$work/preview"
