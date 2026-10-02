@@ -104,7 +104,7 @@ public sealed class FullscreenHost : IDisposable
 
     private sealed class MonitorWindow : Window, IDisposable
     {
-        private readonly FoundationScene scene;
+        private readonly RallyScene scene;
         private readonly HwndSourceHook hook;
         private PixelRect? bounds;
         private HwndSource? source;

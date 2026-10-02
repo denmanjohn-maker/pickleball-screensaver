@@ -9,10 +9,29 @@ public sealed record Preferences
         new[] { "classic", "blacklight", "living-court", "ink-and-paper", "rally-painting" });
     public int SchemaVersion { get; init; } = CurrentVersion;
     public string Theme { get; init; } = "classic";
+    public string CourtMotion { get; init; } = "slow";
+    public string Format { get; init; } = "doubles";
+    public bool DrillEnabled { get; init; } = true;
+    public string DrillLevel { get; init; } = "all";
+    public bool WeatherEnabled { get; init; }
+    public bool TournamentsEnabled { get; init; }
+    public int TournamentMonths { get; init; } = 3;
+    public string LocationName { get; init; } = "";
+    public double Latitude { get; init; }
+    public double Longitude { get; init; }
+    public bool UseFahrenheit { get; init; } = true;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasLocation => !string.IsNullOrWhiteSpace(LocationName) && (Latitude != 0 || Longitude != 0);
+    public Preferences Offline() => this with { WeatherEnabled = false, TournamentsEnabled = false, LocationName = "", Latitude = 0, Longitude = 0 };
     public void Validate()
     {
-        if (SchemaVersion != CurrentVersion || !Themes.Contains(Theme))
-            throw new ArgumentException("Unsupported settings version or Appearance value.");
+        if (SchemaVersion != CurrentVersion || !Themes.Contains(Theme)
+            || CourtMotion is not ("standard" or "slow" or "still") || Format is not ("singles" or "doubles")
+            || DrillLevel is not ("all" or "3.0" or "3.5" or "4.0" or "5.0")
+            || TournamentMonths is not (1 or 3) || LocationName is null || LocationName.Length > 200
+            || LocationName.Any(char.IsControl) || !double.IsFinite(Latitude) || Latitude is < -90 or > 90
+            || !double.IsFinite(Longitude) || Longitude is < -180 or > 180)
+            throw new ArgumentException("Unsupported or invalid preferences.");
     }
 }
 
@@ -28,7 +47,8 @@ public sealed class SettingsStore(string path)
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true
+        WriteIndented = true,
+        UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow
     };
     public string Path { get; } = System.IO.Path.GetFullPath(path);
 
@@ -51,9 +71,11 @@ public sealed class SettingsStore(string path)
             if (settings is null || !root.TryGetProperty("theme", out var theme)
                 || theme.ValueKind != JsonValueKind.String || !Preferences.Themes.Contains(settings.Theme))
                 return new(SettingsStatus.Corrupt, new());
+            settings.Validate();
             return new(SettingsStatus.Loaded, settings);
         }
         catch (JsonException) { return new(SettingsStatus.Corrupt, new()); }
+        catch (ArgumentException) { return new(SettingsStatus.Corrupt, new()); }
         catch (IOException) { return new(SettingsStatus.Unavailable, new()); }
         catch (UnauthorizedAccessException) { return new(SettingsStatus.Unavailable, new()); }
     }

@@ -19,5 +19,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/Pickleball.Core/Pickleball.Core.csproj" />
+    <EmbeddedResource Include="Fixtures/*.json" />
   </ItemGroup>
 </Project>

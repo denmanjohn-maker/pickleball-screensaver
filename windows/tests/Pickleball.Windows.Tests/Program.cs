@@ -10,6 +10,10 @@ using Pickleball.Windows;
 
 internal static class Program
 {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWow64Process2(nint process, out ushort processMachine, out ushort nativeMachine);
+
     [STAThread]
     private static int Main(string[] args)
     {
@@ -26,8 +30,8 @@ internal static class Program
             var clock = new ReplayClock(new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
             using var session = new RenderSession(clock, clock, networkAllowed: false, seed: 42);
             var lifetime = session.Lifetime;
-            using var first = new FoundationScene(session, new());
-            using var second = new FoundationScene(session, new());
+            using var first = new RallyScene(session, new());
+            using var second = new RallyScene(session, new());
             clock.Advance(TimeSpan.FromSeconds(1.0 / 60));
             session.Advance();
             Check(ReferenceEquals(first.Frame, second.Frame) && first.Frame.Sequence == 1,
@@ -74,7 +78,7 @@ internal static class Program
             Check(store.Load().Status == SettingsStatus.Loaded, "Saved configuration must round-trip.");
             using var drills = SharedResources.Open("drills.json");
             Check(drills.Length > 0, "Linked shared resources must be available.");
-            ExportFrame(first, Path.Combine(directory, "foundation.png"));
+            ExportFrame(first, Path.Combine(directory, "rally.png"));
             session.Dispose();
             Check(lifetime.IsCancellationRequested, "Provider cancellation must follow process render lifetime.");
 
@@ -116,6 +120,9 @@ internal static class Program
                         return child != 0 || process.HasExited;
                     });
                     Check(child != 0 && !process.HasExited, "Renamed bundled .scr must actually run embedded WPF.");
+                    Check(IsWow64Process2(process.Handle, out var emulated, out var native) && emulated == 0
+                        && native == (expected == Architecture.Arm64 ? 0xaa64 : 0x8664),
+                        "Renamed published .scr must run natively, not as an emulated process.");
                     NativeMethods.Place(externalParent.Handle, new(0, 0, 640, 480));
                     WaitWhilePumping(() =>
                     {
@@ -158,7 +165,7 @@ internal static class Program
         finally { timer.Stop(); }
         Check(condition(), "Bounded native preview wait timed out.");
     }
-    private static void ExportFrame(FoundationScene scene, string path)
+    private static void ExportFrame(RallyScene scene, string path)
     {
         scene.Measure(new(640, 360));
         scene.Arrange(new Rect(0, 0, 640, 360));

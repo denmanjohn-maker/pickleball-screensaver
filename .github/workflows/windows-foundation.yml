@@ -1,12 +1,17 @@
-name: Windows foundation validation
+name: Windows validation
 
 on:
   pull_request:
-    paths: ['windows/**', 'PickleballScreensaver/Resources/**', 'assets/icon/icon.svg', '.github/workflows/windows-foundation.yml']
+    paths: ['windows/**', 'PickleballScreensaver/**', 'assets/icon/icon.svg', '.github/workflows/windows-foundation.yml']
   push:
     branches: [main]
-    paths: ['windows/**', 'PickleballScreensaver/Resources/**', 'assets/icon/icon.svg', '.github/workflows/windows-foundation.yml']
-  workflow_dispatch: {}
+    paths: ['windows/**', 'PickleballScreensaver/**', 'assets/icon/icon.svg', '.github/workflows/windows-foundation.yml']
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: 'Sign Windows candidates on main only (requires separate Windows secrets; NEVER uploads a release)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -24,8 +29,36 @@ jobs:
           dotnet-version: '10.0.x'
       - run: dotnet test tests/Pickleball.Core.Tests -c Release --nologo
       - run: python3 -B -m unittest discover -s packaging -p 'test_*.py'
+      - name: Regenerate unchanged Swift golden contact traces
+        run: |
+          mkdir -p artifacts/swift-reference
+          swiftc ../PickleballScreensaver/RallyEngine.swift tools/parity/main.swift -o artifacts/swift-reference/export
+          artifacts/swift-reference/export artifacts/swift-reference/final-main-seed42.json
+          python3 tools/parity/compare.py tests/Pickleball.Core.Tests/Fixtures/final-main-seed42.json artifacts/swift-reference/final-main-seed42.json
+
+  themes:
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: windows
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build two architecture-independent clean wallpaper CAB theme packs
+        run: ./packaging/build-themes.ps1 -Output "$PWD/artifacts/themes"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Windows-shared-theme-packs
+          path: |
+            windows/artifacts/themes/*.deskthemepack
+            windows/artifacts/themes/*.sha256
+          if-no-files-found: error
 
   native-windows:
+    needs: [portable-core, themes]
     strategy:
       fail-fast: false
       matrix:
@@ -37,7 +70,7 @@ jobs:
             rid: win-arm64
             architecture: Arm64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: windows
@@ -50,32 +83,64 @@ jobs:
       - name: Require native SDK and OS architecture
         run: |
           if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() -ne '${{ matrix.architecture }}') { throw 'Wrong OS architecture' }
+          if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString() -ne '${{ matrix.architecture }}') { throw 'PowerShell process is emulated' }
           $info = dotnet --info
           $info
           if (-not ($info -match 'Architecture:\s+${{ matrix.architecture }}')) { throw 'SDK architecture not native' }
       - run: dotnet test tests/Pickleball.Core.Tests -c Release --nologo
       - run: python -B -m unittest discover -s packaging -p 'test_*.py'
+      - uses: actions/download-artifact@v4
+        with:
+          name: Windows-shared-theme-packs
+          path: windows/artifacts/themes
       - name: Publish, audit native dependencies and make architecture-labeled ZIPs
-        run: python packaging/publish.py --rid '${{ matrix.rid }}'
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ github.event_name == 'workflow_dispatch' && inputs.sign && github.ref == 'refs/heads/main' && secrets.WINDOWS_SIGNING_PFX_BASE64 || '' }}
+          WINDOWS_SIGNING_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && inputs.sign && github.ref == 'refs/heads/main' && secrets.WINDOWS_SIGNING_PASSWORD || '' }}
+          WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+        run: |
+          $sign = @()
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch' -and '${{ inputs.sign }}' -eq 'true') {
+            if ('${{ github.ref }}' -ne 'refs/heads/main') { throw 'Signing candidates is restricted to main after review' }
+            $sign = @('--sign')
+          }
+          python packaging/publish.py --rid '${{ matrix.rid }}' @sign
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Native WPF child lifecycle and renamed self-contained apphost smoke tests
         run: |
           $scr = (Get-ChildItem artifacts -Recurse -Filter PickleballScreensaver.scr | Where-Object { $_.Directory.Name -notlike '*-folder' }).FullName
           if (@($scr).Count -ne 1) { throw 'Expected exactly one bundled .scr' }
           dotnet run --project tests/Pickleball.Windows.Tests -c Release -- artifacts/native-tests '${{ matrix.architecture }}' "$scr"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Deterministic offscreen export
+      - name: All five appearances, formats, motion and viewport image fixtures
+        run: ./packaging/test-render.ps1 -Output "$PWD/artifacts/native-tests"
+      - name: Build native current-user MSI without third-party installer tooling
         run: |
-          $arguments = @('--project', 'tools/Pickleball.Preview', '-c', 'Release', '--')
-          dotnet run @arguments artifacts/native-tests/replay-a.png 120 42 1280x720 '2026-01-01T12:00:00.0000000+00:00'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          dotnet run @arguments artifacts/native-tests/replay-b.png 120 42 1280x720 '2026-01-01T12:00:00.0000000+00:00'
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ((Get-FileHash artifacts/native-tests/replay-a.png).Hash -ne (Get-FileHash artifacts/native-tests/replay-b.png).Hash) { throw 'Replay PNGs differ' }
+          $payload = (Get-ChildItem artifacts -Directory | Where-Object { $_.Name -match '^PickleballScreensaver-1\.5\.0-${{ matrix.rid }}$' }).FullName
+          ./packaging/build-msi.ps1 -Rid '${{ matrix.rid }}' -Payload "$payload" -Themes "$PWD/artifacts/themes" -Output "$PWD/artifacts/installers"
+      - name: Installer registration, repair and owned-file/reference removal
+        run: |
+          $msi = (Get-ChildItem artifacts/installers -Filter *.msi).FullName
+          ./packaging/test-native-packages.ps1 -Msi "$msi" -Output "$PWD/artifacts/native-tests/msi" -IsolatedRunner
+      - name: Optionally sign MSI candidate and write final checksums
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ github.event_name == 'workflow_dispatch' && inputs.sign && github.ref == 'refs/heads/main' && secrets.WINDOWS_SIGNING_PFX_BASE64 || '' }}
+          WINDOWS_SIGNING_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && inputs.sign && github.ref == 'refs/heads/main' && secrets.WINDOWS_SIGNING_PASSWORD || '' }}
+          WINDOWS_TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+        run: |
+          foreach ($file in Get-ChildItem artifacts/installers -Filter *.msi) {
+            if ('${{ github.event_name }}' -eq 'workflow_dispatch' -and '${{ inputs.sign }}' -eq 'true') { ./packaging/sign.ps1 -Path $file.FullName }
+            $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($file.Name)" | Set-Content "$($file.FullName).sha256" -Encoding ASCII
+          }
       - uses: actions/upload-artifact@v4
         with:
-          name: Windows-foundation-${{ matrix.rid }}
+          name: Windows-candidate-${{ matrix.rid }}
           path: |
             windows/artifacts/*.zip
             windows/artifacts/*.sha256
             windows/artifacts/native-tests/*.png
+            windows/artifacts/native-tests/msi/*.log
+            windows/artifacts/installers/*.msi
+            windows/artifacts/installers/*.sha256
           if-no-files-found: error

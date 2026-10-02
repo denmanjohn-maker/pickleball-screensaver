@@ -167,3 +167,33 @@ Application** certificate, which requires the Apple Developer Program
    ```
 
 Ship that final zip. Recipients just double-click — no warnings.
+
+## Windows candidates and coordinated promotion
+
+Windows 11 ARM64/x64 code, current-user MSI, complete self-contained portable
+ZIPs and architecture-independent Classic/Black Light CAB theme packs live
+under [`windows/`](windows/README.md). Product version 1.5 uses the .NET/MSI
+numeric version 1.5.0. Windows architecture is explicit in every saver/installer
+filename, with individual SHA-256 files. No .NET installation is required.
+
+`.github/workflows/windows-foundation.yml` now validates the real engine,
+artwork, settings/providers, native renamed `.scr`, screenshots, CAB packs
+and MSI lifecycle on native x64 Server and native ARM64 Windows 11 runners.
+Default artifacts are **unsigned development candidates**. Actual Windows 11
+desktop/standard-user/performance/secure-resume acceptance and a Windows
+Authenticode identity remain release gates; neither successful compilation
+nor Apple signing/notarization satisfies those gates.
+
+The existing **Release** workflow is the only release owner. Windows validation
+uploads CI artifacts only—even its explicitly requested, main-only signing
+path never creates a release. Keep macOS versionless asset URLs unchanged.
+Do not rerun/publish over the existing `v1.5` automatically. After documented
+desktop acceptance and explicit maintainer approval, the single release owner
+can attach reviewed architecture-labeled Windows packages and checksums.
+Windows signing secrets are independent of all Apple secrets; signing does
+not guarantee SmartScreen reputation.
+
+MSI authoring uses Windows Installer COM/makecab already present on Windows,
+not WiX downloads. See the Windows guide for the verified WiX binary OSMF
+threshold/exemptions and source-license distinction; this build incurs no
+third-party installer fee or agreement acceptance.

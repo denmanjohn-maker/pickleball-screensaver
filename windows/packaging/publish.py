@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-publish unsigned foundation artifacts; never register or install the saver."""
+"""Publish complete native self-contained Windows packages; never activate the saver."""
 
 import argparse
 import hashlib
@@ -66,6 +66,7 @@ def main():
     parser.add_argument("--rid", required=True, choices=MACHINES)
     parser.add_argument("--dotnet", default="dotnet")
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts")
+    parser.add_argument("--sign", action="store_true", help="Windows only; explicitly configured Authenticode identity")
     args = parser.parse_args()
     output = args.output.resolve()
     # All project commands and outputs stay in this checkout.
@@ -74,8 +75,8 @@ def main():
     version = subprocess.check_output(
         [args.dotnet, "msbuild", str(PROJECT), "-getProperty:Version"], cwd=ROOT, text=True).strip()
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?", version):
-        raise ValueError("Cannot determine the Windows foundation version.")
-    name = f"PickleballScreensaver-foundation-{version}-{args.rid}"
+        raise ValueError("Cannot determine the Windows product version.")
+    name = f"PickleballScreensaver-{version}-{args.rid}"
     single = output / name
     folder = output / f"{name}-folder"
     if single.exists() or folder.exists():
@@ -91,15 +92,21 @@ def main():
     for directory in (folder, single):
         (directory / "Pickleball.Windows.exe").rename(directory / "PickleballScreensaver.scr")
         (directory / "README.txt").write_text(
-            f"UNSIGNED WINDOWS FOUNDATION {version} ({args.rid}) — not the finished screensaver.\n"
-            "Rally physics, artwork, widgets, installer and theme packs are NOT implemented.\n"
+            f"{'SIGNED' if args.sign else 'UNSIGNED DEVELOPMENT'} WINDOWS PICKLEBALL {version} ({args.rid}).\n"
+            "Five appearances; singles/doubles; optional weather, tournaments and daily drills.\n"
             "No registration or system policy changes are performed. No .NET install is needed.\n"
-            "No arguments or /c: configure; /p HWND: embedded preview; /s: fullscreen placeholder.\n"
+            "No arguments or /c: configure; /p HWND: offline embedded preview; /s: fullscreen.\n"
             "Keep ALL files together. Single-file native dependencies extract to the .NET user cache.\n"
             "Windows 11 native runtime acceptance is required before distribution.\n", encoding="utf-8")
+        for script in ("Maintain.ps1",):
+            import shutil
+            shutil.copyfile(ROOT / "packaging" / script, directory / script)
+        if args.sign:
+            subprocess.run(["powershell", "-NoProfile", "-File", str(ROOT / "packaging/sign.ps1"),
+                            "-Path", str(directory / "PickleballScreensaver.scr")], check=True)
     bundled_audit = audit(single, args.rid)
     (single / "architecture.json").write_text(json.dumps({
-        "rid": args.rid, "version": version, "signed": False,
+        "rid": args.rid, "version": version, "signed": args.sign,
         "apphost": bundled_audit, "unbundledDependencyAudit": dependencies
     }, indent=2) + "\n", encoding="utf-8")
     # Preserve complete folders, including any SDK-emitted sidecars; never zip only an assumed apphost.

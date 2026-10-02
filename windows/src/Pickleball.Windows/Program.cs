@@ -13,6 +13,9 @@ internal static class Program
         try
         {
             var options = HostOptions.Parse(args, IntPtr.Size * 8);
+            if (System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+                != System.Runtime.InteropServices.RuntimeInformation.OSArchitecture)
+                throw new PlatformNotSupportedException("Use the native ARM64 or x64 package, not emulation.");
             var parent = options.ParentHandle == 0 ? 0 : NativeMethods.ValidateParent(options.ParentHandle);
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             app.DispatcherUnhandledException += (_, error) =>
@@ -32,14 +35,16 @@ internal static class Program
                 config.ShowDialog();
                 return 0;
             }
-            var loaded = store.Load();
+            // Preview never reads saved city coordinates or creates a network provider.
+            var loaded = options.Mode == HostMode.Preview ? new SettingsLoad(SettingsStatus.Missing, new()) : store.Load();
             if (loaded.Status is not (SettingsStatus.Loaded or SettingsStatus.Missing))
                 Diagnostics.Report("settings-" + loaded.Status.ToString().ToLowerInvariant());
             var wall = options.Mode == HostMode.Preview
                 ? (IWallClock)new ReplayClock(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero))
                 : new WallClock();
             using var session = new RenderSession(new MonotonicClock(), wall,
-                networkAllowed: options.Mode == HostMode.Fullscreen);
+                networkAllowed: options.Mode == HostMode.Fullscreen,
+                seed: (uint)System.Security.Cryptography.RandomNumberGenerator.GetInt32(int.MaxValue), settings: loaded.Value);
             IDisposable? host = null;
             app.Startup += (_, _) =>
             {
@@ -69,7 +74,7 @@ internal static class Diagnostics
     {
         if (Interlocked.Increment(ref count) > 8) return;
         // No paths, handles, location, settings contents, telemetry or persistent log files.
-        var message = $"Pickleball foundation: {category} ({error?.GetType().Name ?? "notice"}).";
+        var message = $"Pickleball: {category} ({error?.GetType().Name ?? "notice"}).";
         Trace.WriteLine(message);
         Console.Error.WriteLine(message);
     }

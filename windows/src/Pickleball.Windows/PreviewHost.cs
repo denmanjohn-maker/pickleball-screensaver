@@ -11,7 +11,7 @@ public sealed class PreviewHost : IDisposable
     private readonly nint parent;
     private readonly uint parentThread, parentProcess;
     private readonly HwndSource source;
-    private readonly FoundationScene scene;
+    private readonly RallyScene scene;
     private readonly DispatcherTimer timer;
     private int width = -1, height = -1;
     public bool IsDisposed { get; private set; }

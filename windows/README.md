@@ -1,248 +1,210 @@
-# Windows 11 foundation (not the finished screensaver)
+# Pickleball for Windows 11
 
-This directory is a separate C# / **.NET 10 LTS** implementation in the same
-repository. macOS source, packaging, workflows and download names are unchanged.
-The current scene is deliberately labeled **foundation only**: its moving
-geometric marker is a deterministic host test, not pickleball simulation or
-provisional artwork. Appearance choices are persisted, but only classic and
-blacklight change the foundation background/accent. The other appearances are
-reserved for the final merged artwork port.
+Independent C#/.NET **10 LTS** WPF implementation, product **1.5**
+(`Version=1.5.0`), in the same repository as the unchanged macOS screensaver.
+Native **win-arm64** and **win-x64** packages are self-contained; recipients
+do not install .NET. Running the x64 package under ARM emulation is rejected.
 
-## Source gate
+The source baseline is final merged macOS **f0dc8161d77215cd4fe5dd5ed73bfe8ae541b6c3**
+(evaluation PR #36 and artwork PR #37, macOS 1.5/build 2). The initial Windows
+host commit was **52f84741c137a8a73cbf8f91338c3056d93f219d**. No provisional
+art branch is used. Windows packages remain **validation candidates**, not
+automatically published releases.
 
-Foundation began on **`73b2f867b686d8a14318f572cca69bc2c7f6748f`**
-(merged evaluation PR #36, verified against `origin/main` on October 2, 2026).
-During implementation, artwork PR #37 merged and main advanced to
-**`f0dc8161d77215cd4fe5dd5ed73bfe8ae541b6c3`** (version 1.5 bump).
-Only this new isolated Windows branch was rebased onto that merged-main
-baseline; no other checkout or agent branch was changed.
-The earlier `5114909` baseline is obsolete. Artwork was still in progress at
-the start of this stage; no unfinished artwork branch was fetched into this
-implementation. **The parent's re-evaluation of the final merged code remains
-required before porting final features.** Do not treat this foundation commit
-or its independent `0.1.0` development version as a coordinated product release.
+## Implemented feature inventory
 
-## Projects
+* UI-independent fixed-120Hz engine: original SplitMix64 overflow and Swift
+  closed-floating-range rejection mapping, serves, two-bounce rule, kitchen
+  legality, all eleven shot types, human movement/handedness/stance/recovery,
+  singles/doubles, opening 0–0–2, side-out scoring, games to 11 by two.
+* One process-owned engine, art state, decorative RNG and provider set;
+  immutable frames shared by all monitor views. Views never step the engine.
+* Independently fitted perspective court/apron, service boxes/grain/lines,
+  sagging net and strands/posts, yaw-aware depth/occlusion, team-tinted shared
+  paddle PNG with contact-pinned swing geometry, spinning holed ball,
+  shadow/trail, scoreboard/serve call/game tally/banner, clock and widget rail.
+  Fit covers the full rotation envelope, not an old static rectangle.
+* Mutually exclusive **classic**, **blacklight**, **living-court**,
+  **ink-and-paper**, **rally-painting**; team A is positive-facing cyan,
+  team B negative-facing coral/pink (deeper ink shades on paper).
+  Selecting the same appearance is a strict no-op. Real appearance/format
+  changes, reset and reseed clear art/ghosts/projection and brush caches.
+* Living Court: ordered bounce ripples (24/1.2s), contact halos (16/.35s,
+  retain height), correct behind/in-front-of-net passes. Rally Painting:
+  floor-space strokes (96 × 128), contact/bounce anchors, live-only 30Hz
+  samples, .01ft deduplication, bounded decimation, pre-fade beyond 80,
+  smoothstep two-second old-game fade; new-game strokes remain unfaded.
+  Duplicate frame numbers never replay events or age history; redraw only
+  updates per-view geometry caches.
+* Paper: independent seeded LCG, cached 256px tile/3000 dots, 48 washes ×
+  24 vertices, 900 fibers, segmented ink trail preserving net occlusion.
+  Linked original PNG/SVG/drills resources are embedded, not copied assets.
+  Text uses installed Windows Segoe UI; icons are original simple vectors,
+  not Apple SF Symbols or redistributed Apple fonts.
+* Minute-boundary turn: standard 6s, **slow 12s default**, still.
+  Windows “Animation effects” off disables rotation/ambient/zoom; fixed
+  reduced-motion fit includes lob headroom. Normal lob zoom derives from
+  contact velocity and eases in the per-viewport animation update.
+* All final preferences/defaults: appearance, motion, match format,
+  daily-drill enable/level, weather enable/city/coordinates/units,
+  tournaments enable/1-or-3-month window. Versioned, validated, size-bounded,
+  atomic same-directory preferences under
+  `%LOCALAPPDATA%\PickleballScreensaver\settings.json`. Save/Cancel and
+  explicit corrupt/unsupported recovery; editing a city cancels/invalidate
+  stale geocoding and requires lookup again before saving a location.
+* Optional async Open-Meteo weather/geocoding; forecast/feels-like/wind/rain/
+  sunrise/sunset/tomorrow/play verdict. 30-minute refresh/two-minute retry.
+  Tournament API: same city, nearest of 25 supported US metros within 60
+  miles, 1/3-month window, first 20 results as in macOS, three-row visual
+  pages every six seconds with edge fades; hourly refresh/10-minute retry.
+  Disabled providers send no HTTP. Snapshots retain stale data explicitly.
+  Requests have whole-stream timeouts/1MiB limits and lifetime cancellation.
+  No telemetry, persistent network logs or extraneous location diagnostics.
+* Daily filtered drills use the embedded shared JSON and Gregorian local
+  calendar day-in-era (stable across DST), not seconds-since-epoch.
+* Separate real CAB Classic/Black Light desktop theme packs with clean
+  3840×2160 and 5120×2160 wallpaper and matching colors. No frozen widgets,
+  dates, executables, cursors, sounds, icons, included msstyles or patchers.
 
-| Path | Responsibility |
-| --- | --- |
-| `src/Pickleball.Core` | UI-independent host arguments, versioned atomic preferences, injected monotonic/wall/replay clocks, immutable frame/event boundary, viewport/input helpers, embedded shared resources |
-| `src/Pickleball.Windows` | WPF `.scr` entry point, per-monitor fullscreen windows, true child-HWND preview, modal configuration, one process render session |
-| `tests/Pickleball.Core.Tests` | Platform-neutral xUnit regressions |
-| `tests/Pickleball.Windows.Tests` | Bounded native STA/WPF integration executable; requires an explicit isolated output directory and published `.scr` |
-| `tools/Pickleball.Preview` | Offline deterministic one-frame PNG exporter; does not register the saver |
-| `packaging/publish.py` | Explicit RID, self-contained portable ZIPs, PE architecture audit and SHA-256 checksums |
+## Screensaver host
 
-Original PNG, SVG and `drills.json` files are **linked as embedded resources
-from their existing repository locations**, not copied source assets.
-`SharedResources.Open` reads manifest streams, so resources do not depend on
-the current directory, executable name, `Assembly.Location` or the extraction
-directory. No SF Symbols or Apple fonts are redistributed. The foundation uses
-the installed Windows Segoe UI font.
+```text
+PickleballScreensaver.scr                 configuration
+PickleballScreensaver.scr /c              configuration
+PickleballScreensaver.scr /c:HWND          modal owned configuration
+PickleballScreensaver.scr /c HWND          same
+PickleballScreensaver.scr /s              synchronized fullscreen monitors
+PickleballScreensaver.scr /p:HWND          real embedded child-HWND preview
+PickleballScreensaver.scr /p HWND          same
+```
 
-## Build and portable tests
+Case-insensitive, conventional `-` forms accepted. Handles are nonzero,
+unsigned decimal and pointer-sized. Bad arguments/stale handles return **2**,
+other startup failures **1**; never fall back from preview to fullscreen.
+Preview follows parent client size/DPI and terminates with parent death.
+It **does not read saved city coordinates**, create HTTP providers or use
+networking. Offline exports also strip city/coordinates and networking.
+Only fullscreen hides the cursor; key/button input, deactivation or movement
+outside the initial four-pixel positional noise threshold exits immediately.
+There is no long startup input-ignore timer.
 
-Install a stable .NET 10 SDK (the SDK selection rolls forward within .NET 10).
-Run all commands here, not in the macOS project directory:
+Mixed DPI, portrait, 4K, ultrawide, negative monitor coordinates and hotplug
+are handled by independent monitor windows with a shared frame. Secure resume,
+password, idle timeout, lock and sleep remain Windows policy—not application
+preferences or replacements.
+
+## Build, tests and offline images
 
 ```sh
 cd windows
 dotnet test tests/Pickleball.Core.Tests -c Release --nologo
 python3 -B -m unittest discover -s packaging -p 'test_*.py'
 dotnet build Pickleball.slnx -c Release --nologo
+dotnet format Pickleball.slnx --no-restore --verify-no-changes
 python3 packaging/publish.py --rid win-arm64
 python3 packaging/publish.py --rid win-x64
 ```
 
-`EnableWindowsTargeting` allows reference-assembly compilation on macOS/Linux;
-it does **not** make WPF executable there. On Windows `python` may be used
-instead of `python3`. `--dotnet /absolute/path/to/dotnet` supports a local SDK.
-Publish output must be under `windows/`. To repeat publishing use a fresh
-`--output artifacts/run-2`; the script refuses existing publish folders to
-prevent stale dependencies leaking into packages.
+SDK selection rolls forward within .NET 10. `--dotnet /path/to/dotnet`
+supports a task-local SDK. `--output` must stay beneath `windows/`; use a fresh
+directory when repeating publishes. Trimming and AOT are explicitly disabled.
+Portable ZIPs contain **all** SDK-emitted files; separate complete folder
+ZIPs provide an audited fallback. Single-file native dependencies explicitly
+extract into the per-user .NET cache (`DOTNET_BUNDLE_EXTRACT_BASE_DIR` can
+redirect it); “portable” does not mean zero cache writes.
+PE audits reject mismatched native/R2R dependencies; only IL-only AnyCPU
+assemblies may use I386 headers. SHA-256 files accompany each package.
 
-For each RID, the script emits:
-
-* `PickleballScreensaver-foundation-0.1.0-win-{arm64|x64}.zip`: renamed bundled
-  apphost, all SDK-emitted sidecars if any, foundation warning and architecture
-  report.
-* A separate `...-folder.zip` retaining **all** unbundled self-contained
-  dependencies. This is the explicit fallback if native single-file runtime
-  acceptance fails, and permits auditing the native dependencies before
-  bundling.
-* Per-ZIP SHA-256 files. No installer, registration, signing or release upload.
-
-The publish command explicitly disables trimming and AOT; neither is assumed
-supported by WPF. Single-file publishing explicitly enables
-`IncludeNativeLibrariesForSelfExtract`. The runtime extracts native libraries
-to its per-user .NET bundle cache by default; portable means **no .NET install**,
-not zero cache writes. Tests redirect extraction into their isolated artifact
-directory. PE checks require AMD64 (`0x8664`) or ARM64 (`0xaa64`) apphosts and
-native/R2R dependencies for the requested RID; I386 headers are allowed only
-on IL-only AnyCPU assemblies. Native dependencies are .NET/WPF runtime files
-and Windows OS libraries; no third-party native dependency is introduced.
-
-## `.scr` protocol and lifetimes
-
-```text
-PickleballScreensaver.scr             configuration
-PickleballScreensaver.scr /c          configuration
-PickleballScreensaver.scr /c:HWND     modal configuration owned by that live window
-PickleballScreensaver.scr /c HWND     same
-PickleballScreensaver.scr /s          fullscreen foundation on every monitor
-PickleballScreensaver.scr /p:HWND     embedded preview
-PickleballScreensaver.scr /p HWND     same
-```
-
-Options are case-insensitive; the conventional `-c`/`-p`/`-s` forms are also
-accepted. HWND text is unsigned decimal, pointer-sized and nonzero. Invalid
-options, duplicates, extra arguments, malformed/zero/stale HWNDs fail with
-exit code **2**, never a fullscreen fallback. Other startup failures return
-**1**. Diagnostics are capped at eight category/type-only entries to Trace
-and stderr; no persistent logs, location, settings content or telemetry.
-
-Configuration assigns the native owner and runs a WPF modal dialog. For
-foreign-process owners (such as Windows settings), an explicit owner scope
-disables that live window for the dialog and restores its previous enabled
-state afterward, including exceptional exits; an already-disabled owner is
-not spuriously enabled.
-
-Preview uses `HwndSource` with `WS_CHILD`, not a top-level imitation or
-`SetParent` reparenting. It fits the parent's physical client rectangle and
-checks every 100 ms for resize, disappearance, reparenting or changed parent
-process/thread identity. Disposal removes subscriptions, stops timers and
-notifies application shutdown. PerMonitorV2 is declared for Windows 11; the
-preview's WPF root inherits its child HWND DPI context. Zero-sized parents
-produce a zero-sized child, not fullscreen. Preview never hides the cursor or
-installs fullscreen input/deactivation handlers.
-
-Fullscreen windows use physical monitor bounds including negative desktop
-coordinates. Each WPF renderer independently fits the 1280×720 foundation
-scene using its current DIP dimensions. Display/DPI messages and a one-second
-display check reconcile connected monitors without resetting shared time.
-One timer advances **one** `RenderTimeline`, then broadcasts the exact same
-immutable frame to every view; no engine/provider is created per monitor.
-The timeline bounds elapsed steps to 250 ms and uses monotonic time; wall
-clock adjustments do not step it. Views only render snapshots.
-
-Fullscreen exits on key, mouse button/wheel, movement beyond four physical
-pixels from the initial cursor position, application deactivation to another
-process or window close. Initial/small cursor noise is ignored by position,
-not by a long input-suppression interval. Only fullscreen sets `Cursors.None`.
-No code changes idle, timeout, sign-in, lock, password or secure-resume policy.
-Windows remains responsible for secure resume; physical acceptance is pending.
-
-`RenderSession.Providers` owns the process cancellation token and the
-provider-permission boundary. `ProcessProviders.RegisterNetwork` deduplicates
-factories by name before startup and rejects them without invoking the factory
-in offline mode. Start/dispose happen once per process, including cleanup of
-all providers when one fails. No weather, geocoding, tournament or other network provider exists
-in this stage. Preview/export set `NetworkAllowed=false` and inject a fixed
-or replay wall clock: there are no clock/widget API calls. Future providers
-must be created **once** by the process session, obey that gate and cancellation,
-and publish cached snapshots rather than block rendering.
-
-`RenderFrame.Events` reserves an ordered per-step **contact/bounce** delivery
-boundary. It is empty in the foundation because no engine has been ported.
-Final event payloads must be reconciled with the merged artwork implementation;
-do not alter `RallyEngine` to support the renderer or infer impacts from logs.
-
-## Preferences and configuration
-
-Normal application configuration uses
-`%LOCALAPPDATA%\PickleballScreensaver\settings.json`. No file/directory is
-created merely by loading or cancelling configuration. Schema version 1
-currently stores **only** `theme`, using the persisted contract
-`classic`, `blacklight`, `living-court`, `ink-and-paper`, `rally-painting`.
-There is one Appearance menu and no effect toggles. Match, motion and provider
-fields will be added after their merged defaults/contracts are verified.
-
-Save validates values, writes/flushes a unique same-directory staging file,
-then atomically renames it over the owned preferences file. Readers permit
-delete-sharing for atomic replacement on Windows. Corrupt, oversized
-(>16 KiB) or unsupported-version files are not silently overwritten; the
-configuration requires an explicit replacement checkbox before Save.
-Unavailable files report an error and are not overwritten. Cancel never saves.
-Version migration, multi-process editing conflicts and additional provider
-preferences are future work, not implied by schema versioning.
-
-## Deterministic native preview and CI
-
-On Windows, export the same seed, frame, size and ISO-8601 epoch twice:
+On **native Windows**:
 
 ```powershell
-dotnet run --project tools/Pickleball.Preview -c Release -- artifacts/frame.png 120 42 1280x720 '2026-01-01T12:00:00.0000000+00:00'
+dotnet run --project tools/Pickleball.Preview -c Release -- artifacts/ink.png 800 42 1280x720 '2026-01-01T12:00:00.0000000+00:00' ink-and-paper singles reduced
+./packaging/test-render.ps1 -Output "$PWD/artifacts/render"
+./packaging/build-themes.ps1 -Output "$PWD/artifacts/themes"
+./packaging/build-msi.ps1 -Rid win-arm64 -Payload "$PWD/artifacts/PickleballScreensaver-1.5.0-win-arm64" -Themes "$PWD/artifacts/themes" -Output "$PWD/artifacts/installers"
 ```
 
-The output directory must already exist. Frames are advanced at a fixed
-60 Hz and bounded to 36,000 steps. Export never loads/saves user preferences
-or starts providers. Repeatability is checked **on the same native runner**;
-cross-architecture/font-version bit-for-bit PNG identity is not promised.
+Exporter arguments: output, frame (0..36000), uint seed, size, ISO epoch,
+optional appearance/format/motion (`reduced` allowed), optional `wallpaper`.
+Wallpaper mode excludes simulation equipment, art history, ghosts and every
+widget/clock/score/date. Simulation/decorative clocks/RNG are controlled.
+Platform fonts and antialiasing may differ; missing geometry is not permitted.
 
-`.github/workflows/windows-foundation.yml` uses `windows-2025` (native x64)
-and `windows-11-arm` (native ARM64), with explicit OS/SDK/process architecture
-checks to reject emulation. These labels are listed in the official
-[GitHub-hosted runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
-(checked October 2, 2026); this repository is public. x64 hosted runners are
-Windows Server, so the x64 job does not constitute Windows 11 desktop acceptance.
-The ARM job uses the Windows 11 image. CI publishes/audits both RIDs, exercises
-small isolated child HWNDs, Save/Cancel against an explicit test directory,
-provider cancellation, offscreen rendering, invalid `.scr` options/handles,
-valid renamed bundled `.scr` preview/resize/parent-death and
-same-seed PNG repeatability. It never installs or registers a saver, alters
-user preferences or policies, or requires signing secrets. CI uploads unsigned
-foundation artifacts only; it is not a second release publisher.
+## Current-user installation and removal
 
-Local macOS validation can prove portable tests, reference compilation and
-PE/publish architecture. It **cannot** prove Windows runtime operation.
-Native CI must run after pushing this branch; no native CI pass is claimed
-by the local implementation.
+MSIs are authored using **Windows' existing Windows Installer COM API and
+makecab**, not downloaded WiX binaries or a new third-party build tool.
+Template Summary is `Arm64;1033` or `x64;1033`; 64-bit components, current-user
+LUA package flag, native OS architecture launch condition, and no ALLUSERS.
+Files go to `%LOCALAPPDATA%\Programs\PickleballScreensaver`, never System32.
+Windows Installer supplies upgrade/repair/uninstall and tracks each owned
+file; unrelated files and saved preferences are retained. Future public
+updates must increase the product version; deterministic component IDs stay
+stable per architecture/file.
 
-### Foundation-stage validation recorded October 2, 2026
+Install does **not** activate/select a saver, apply a theme or alter policy.
+Start-menu shortcuts expose Settings and explicitly opted-in Select/Classic/
+Blacklight actions. Selection asks confirmation and changes only the user's
+`SCRNSAVE.EXE` reference (not activation/timeout/secure resume). Uninstall
+clears that reference only if it still names this installed saver; another
+saver is untouched. Windows-imported themes remain user-owned customization.
+Portable users can run `/c` and use `Maintain.ps1 -Action Select` explicitly.
 
-Executed only in the isolated `denmanjohn-maker-miniature-journey` worktree
-on macOS ARM64, using an official Microsoft **10.0.401** SDK installed locally
-for this task (not a global SDK installation):
+WiX was evaluated, but **is not a dependency**: its current official
+[OSMFEULA](https://github.com/wixtoolset/wix/blob/main/OSMFEULA.txt)
+applies to project-provided binary releases used in revenue-generating
+activities with annual gross revenue **≥ US$10,000**, with specified
+low-revenue/separate-maintenance exemptions. Open-source status alone is not
+an exemption. Source/self-compiled binaries are separately governed by
+[MS-RL](https://github.com/wixtoolset/wix/blob/main/LICENSE.TXT).
+No payment or acceptance of those binary terms is performed by this build.
 
-| Check | Result |
-| --- | --- |
-| `dotnet test tests/Pickleball.Core.Tests -c Release --nologo` | 59 passed, 0 failed, 0 skipped |
-| `python3 -B -m unittest discover -s packaging -p 'test_*.py'` | 7 passed (PE architecture/AnyCPU/native-apphost checks) |
-| `dotnet build Pickleball.slnx -c Release --nologo` | All five projects compiled; 0 warnings/errors |
-| `dotnet format Pickleball.slnx --verify-no-changes --no-restore` | Passed |
-| `python3 packaging/publish.py --rid win-arm64 --output artifacts/handoff` | Bundled + complete-folder self-contained publishes succeeded; ARM64 `0xaa64` apphosts; 397 dependency PEs audited, including 157 native/R2R |
-| `python3 packaging/publish.py --rid win-x64 --output artifacts/handoff` | Bundled + complete-folder self-contained publishes succeeded; AMD64 `0x8664` apphosts; 398 dependency PEs audited, including 158 native/R2R |
-| Independent `file` inspection, ZIP CRC and SHA-256 verification | Both renamed GUI `.scr` architectures verified; all four ZIPs verified |
-| Workflow YAML parsing and `git diff --check` | Passed |
-| WPF execution, native integration/export, Windows 11 user acceptance | **Not run on macOS; pending Windows** |
+## Signing and single release owner
 
-The two bundled ZIPs, two fallback-folder ZIPs, checksum sidecars and unpacked
-architecture reports are retained as ignored build outputs under
-`windows/artifacts/handoff/`. The `--dotnet` override was used for the local
-SDK during publication. Task-only SDK/download/cache files were removed after
-validation; no installer or release was produced.
+No Windows Authenticode identity was supplied. Default outputs are labeled
+**unsigned development candidates**; SmartScreen warnings are possible.
+Optional `publish.py --sign` and `sign.ps1` require **separate Windows**
+`WINDOWS_SIGNING_PFX_BASE64`, `WINDOWS_SIGNING_PASSWORD`, and HTTPS
+`WINDOWS_TIMESTAMP_URL`; certificate material stays in memory and is disposed.
+Signing fails if signature/trusted timestamp verification fails. Apple
+credentials are never reused. Successful signing still does not promise
+SmartScreen reputation or warning-free installation.
 
-## Remaining stages / acceptance gate
+Windows validation uses only read permissions and artifact uploads. Its
+manual signing option is restricted to reviewed `main`. It never creates a
+release, tags or merges. Existing `.github/workflows/release.yml` remains the
+**single release owner** and macOS versionless download URLs are unchanged.
+Do **not** republish/overwrite already-triggered `v1.5`. Windows promotion
+requires explicit maintainer approval after the gates below, then attachment
+through the one release-owner path; no competing Windows publisher exists.
 
-1. Receive the final merged evaluation + artwork SHA; re-evaluate engine,
-   renderer and defaults and then port rules/physics/movement/scoring/shot
-   lifecycles and ordered per-step impacts.
-2. Port projected court/net/paddles/ball/trails/shadows, scoreboard, all five
-   appearances, framing/motion/team-color options and local clock/drills.
-3. Port cached weather/geocoding/tournament providers with shared lifetime,
-   cancellation and no-network preview/export enforcement; expand validated
-   settings and Save/Cancel tests.
-4. Native Windows 11 ARM64 **and** x64 desktop acceptance: real Control Panel
-   preview, parent resize/death, owned modal configuration, keyboard/buttons/
-   movement/deactivation exit, secure resume, multi-monitor negative origins,
-   portrait/ultrawide/4K, mixed scaling and hot-plug. CI does not cover all of
-   these scenarios.
-5. Prove current-user ARM64/x64 installer tooling (WiX/MSI is a candidate, not
-   yet selected/proven), install under LOCALAPPDATA, opt-in registration/theme
-   selection, owned-artifact upgrade/repair/uninstall; never System32 or policy
-   changes. Build final portable ZIPs and original Classic/BlackLight CAB
-   `.deskthemepack` assets only after artwork is final.
-6. Coordinate product version, single release owner, arch labels/checksums
-   and Windows signing separately from macOS secrets. Signing identity is
-   not supplied; no signing or SmartScreen guarantee is claimed. Preserve
-   existing macOS release/download asset names. Do not tag/release foundation.
+## Evidence and outstanding acceptance
+
+Local macOS: 80 platform-neutral .NET tests (including exact contact frames,
+types, players, received bounces/scores and ≤1e-7 vectors against unchanged
+Swift seed-42 singles/doubles 180s traces), seven Python publish audits,
+five-project WPF reference cross-build, format validation; final macOS engine,
+camera and artwork regressions also pass. See PR/native CI for current
+published `.scr`, screenshot, CAB and MSI results.
+
+`windows-2025` is an **x64 Windows Server** runner, not Windows 11 desktop
+acceptance. `windows-11-arm` runs **native ARM64 Windows 11** with explicit OS,
+SDK, PowerShell/test-process and published-process architecture checks.
+Native tests exercise the **renamed self-contained `.scr`**, real preview
+HWND/resize/parent death, settings and image export. Isolated runner MSI tests
+check no auto-selection/policy changes, repair, owned-reference removal and
+alternative/unowned-file preservation. Hosted users can be administrators:
+passing there alone does not prove standard-user/non-admin desktop acceptance.
+
+Before distribution, record actual **Windows 11 ARM64 and x64 desktops**:
+
+* Control Panel preview and owned settings, independent mixed-DPI monitors/
+  hotplug, fullscreen input/deactivation, idle invocation, secure resume/lock/
+  sleep, reduced-motion behavior;
+* clean standard-user install, upgrade, repair and uninstall, preserving an
+  alternative saver; open both CAB packs and verify clean wallpaper/colors;
+* sustained memory bounds and measured 60fps target on representative hardware;
+* verified Windows identity/timestamp and final signed package checksums.
+
+Cross-building on macOS, x64-on-ARM compilation, a PNG or Server runner is not
+evidence for these desktop/policy/performance/signing gates.

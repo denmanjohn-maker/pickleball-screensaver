@@ -76,9 +76,11 @@ public sealed class ClockAndViewportTests
         {
             a.Advance(TimeSpan.FromSeconds(1.0 / 60));
             b.Advance(TimeSpan.FromSeconds(1.0 / 60));
-            Assert.Equal(first.Advance(), second.Advance());
+            // ImmutableArray<T>'s default equality is reference-based, so compare frames
+            // structurally via JSON rather than relying on record equality.
+            Assert.Equal(JsonSerializer.Serialize(first.Advance()), JsonSerializer.Serialize(second.Advance()));
         }
-        Assert.NotEqual(first.Current.MarkerX, new RenderTimeline(a, a, 124).Current.MarkerX);
+        Assert.NotEqual(first.Current.Match.Ball, new RenderTimeline(a, a, 124).Current.Match.Ball);
         Assert.Empty(first.Current.Events);
         Assert.Throws<ArgumentOutOfRangeException>(() => a.Advance(TimeSpan.FromSeconds(-1)));
     }

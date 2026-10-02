@@ -8,6 +8,12 @@ A macOS screensaver that renders a stylized pickleball court with animated singl
 **[download page](https://denmanjohn-maker.github.io/pickleball-screensaver/)** —
 no build tools needed.
 
+**Windows 11:** the same repository now contains a native ARM64/x64 .NET 10
+implementation, current-user MSI/portable ZIP packaging and two desktop CAB
+theme packs. Windows artifacts are validation candidates, **not yet promoted
+downloads**; existing macOS downloads are unchanged. See the
+[Windows guide](windows/README.md) for features, builds and desktop/signing gates.
+
 The left rail of widget-style cards shows current weather with a "good day to play?" badge, nearby tournaments, and drill of the day. A separate clock and team-colored scoreboard sit below the court.
 
 ## Court and game options
