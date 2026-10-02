@@ -21,6 +21,7 @@ public sealed class RallyScene : FrameworkElement, IDisposable
     private static readonly DrawingImage Paper = MakePaper();
     public RenderFrame Frame { get; private set; }
     public bool WallpaperOnly { get; init; }
+    public WidgetFixture? Fixture { get; init; }
     public RallyScene(RenderSession session, Preferences settings)
     {
         settings.Validate(); this.session = session; Frame = session.Frame;
@@ -279,10 +280,10 @@ public sealed class RallyScene : FrameworkElement, IDisposable
     private void DrawWidgets(DrawingContext dc)
     {
         var u = projection!.Unit; var x = u * .05; var width = projection.RailWidth; var pad = u * .018; var top = ActualHeight * .05;
-        if (Frame.Settings.WeatherEnabled)
+        if (Frame.Settings.WeatherEnabled || Fixture is not null)
         {
-            var state = session.Weather?.State;
-            var rows = new List<string> { Frame.Settings.HasLocation ? Frame.Settings.LocationName : "Choose a city in settings" };
+            var state = Fixture?.Weather ?? session.Weather?.State;
+            var rows = new List<string> { Fixture is not null ? "Sample city — offline fixture" : Frame.Settings.HasLocation ? Frame.Settings.LocationName : "Choose a city in settings" };
             if (state?.Value is { } weather)
             {
                 rows.Add($"{weather.TemperatureText(weather.Temperature)}   {weather.Label}   Feels {weather.TemperatureText(weather.Apparent)}");
@@ -296,9 +297,9 @@ public sealed class RallyScene : FrameworkElement, IDisposable
             else rows.Add(state?.Status ?? "Unavailable");
             top = Card(dc, "WEATHER", rows, x, top, width, u * .018) + u * .02;
         }
-        if (Frame.Settings.TournamentsEnabled)
+        if (Frame.Settings.TournamentsEnabled || Fixture is not null)
         {
-            var state = session.Tournaments?.State; var rows = new List<string>();
+            var state = Fixture?.Tournaments ?? session.Tournaments?.State; var rows = new List<string>();
             if (state?.Value is { } tournaments)
             {
                 rows.Add($"{tournaments.Metro.Name}, {tournaments.Metro.State} • Next {tournaments.Months} month(s)");

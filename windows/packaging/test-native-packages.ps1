@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][string]$Msi,[Parameter(Mandatory)][string]$Output,[switch]$IsolatedRunner)
+param([Parameter(Mandatory)][string]$Msi,[Parameter(Mandatory)][string]$Output,[string]$UpgradeMsi,[switch]$IsolatedRunner)
 $ErrorActionPreference = 'Stop'
 if (-not $IsolatedRunner -or $env:GITHUB_ACTIONS -ne 'true') { throw 'Destructive install tests require an explicitly isolated GitHub runner' }
 $directory=[IO.Path]::GetFullPath($Output);New-Item -ItemType Directory -Force $directory | Out-Null
@@ -20,8 +20,16 @@ try {
     Set-Content -LiteralPath (Join-Path $installed 'unowned-sentinel.txt') 'Must survive uninstall'
     Invoke-Msi @('/fa',"`"$([IO.Path]::GetFullPath($Msi))`"",'/qn','/l*v',"`"$(Join-Path $directory 'repair.log')`"")
     if(-not(Test-Path -LiteralPath $saver)){throw 'Repair failed'}
+    $uninstallMsi=$Msi
+    if($UpgradeMsi) {
+        Set-ItemProperty $desktop 'SCRNSAVE.EXE' $saver
+        Invoke-Msi @('/i',"`"$([IO.Path]::GetFullPath($UpgradeMsi))`"",'/qn','/l*v',"`"$(Join-Path $directory 'upgrade.log')`"")
+        if(-not(Test-Path -LiteralPath $saver)){throw 'Upgrade lost stable saver'}
+        if((Get-ItemPropertyValue $desktop 'SCRNSAVE.EXE') -ne $saver){throw 'Upgrade cleared owned selection'}
+        $uninstallMsi=$UpgradeMsi
+    }
     Set-ItemProperty $desktop 'SCRNSAVE.EXE' 'C:\UnrelatedScreensaver.scr'
-    Invoke-Msi @('/x',"`"$([IO.Path]::GetFullPath($Msi))`"",'/qn','/l*v',"`"$(Join-Path $directory 'uninstall-alternative.log')`"")
+    Invoke-Msi @('/x',"`"$([IO.Path]::GetFullPath($uninstallMsi))`"",'/qn','/l*v',"`"$(Join-Path $directory 'uninstall-alternative.log')`"")
     if((Get-ItemPropertyValue $desktop 'SCRNSAVE.EXE') -ne 'C:\UnrelatedScreensaver.scr'){throw 'Uninstall stomped alternative selection'}
     if(Test-Path -LiteralPath $saver){throw 'Uninstall left owned saver'}
     if(-not(Test-Path -LiteralPath (Join-Path $installed 'unowned-sentinel.txt'))){throw 'Uninstall deleted an unowned file'}

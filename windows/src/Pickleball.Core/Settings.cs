@@ -96,8 +96,10 @@ public sealed class SettingsStore(string path)
                 JsonSerializer.Serialize(file, settings, JsonOptions);
                 file.Flush(flushToDisk: true);
             }
-            // Same-directory rename avoids exposing partially written JSON to readers.
-            File.Move(staging, Path, overwrite: true);
+            // ReplaceFileW preserves the destination while concurrent readers hold
+            // delete-sharing handles. Move(overwrite) is not equivalent on Windows.
+            if (File.Exists(Path)) File.Replace(staging, Path, destinationBackupFileName: null);
+            else File.Move(staging, Path);
         }
         finally
         {

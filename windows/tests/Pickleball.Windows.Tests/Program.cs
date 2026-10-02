@@ -78,7 +78,12 @@ internal static class Program
             Check(store.Load().Status == SettingsStatus.Loaded, "Saved configuration must round-trip.");
             using var drills = SharedResources.Open("drills.json");
             Check(drills.Length > 0, "Linked shared resources must be available.");
+            var beforeRedraw = System.Text.Json.JsonSerializer.Serialize(session.Frame);
             ExportFrame(first, Path.Combine(directory, "rally.png"));
+            ExportFrame(first, Path.Combine(directory, "rally-redraw.png"));
+            Check(beforeRedraw == System.Text.Json.JsonSerializer.Serialize(session.Frame), "Redraw cannot mutate simulation or artwork.");
+            Check(File.ReadAllBytes(Path.Combine(directory, "rally.png")).SequenceEqual(File.ReadAllBytes(Path.Combine(directory, "rally-redraw.png"))),
+                "Repeated redraw must preserve exact pixels.");
             session.Dispose();
             Check(lifetime.IsCancellationRequested, "Provider cancellation must follow process render lifetime.");
 

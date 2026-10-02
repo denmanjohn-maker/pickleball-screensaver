@@ -126,6 +126,8 @@ dotnet run --project tools/Pickleball.Preview -c Release -- artifacts/ink.png 80
 
 Exporter arguments: output, frame (0..36000), uint seed, size, ISO epoch,
 optional appearance/format/motion (`reduced` allowed), optional `wallpaper`.
+`widgets` or `widgets-metric` supplies explicit synthetic cached provider
+snapshots for screenshots, without HTTP or saved user location.
 Wallpaper mode excludes simulation equipment, art history, ghosts and every
 widget/clock/score/date. Simulation/decorative clocks/RNG are controlled.
 Platform fonts and antialiasing may differ; missing geometry is not permitted.
@@ -192,7 +194,7 @@ acceptance. `windows-11-arm` runs **native ARM64 Windows 11** with explicit OS,
 SDK, PowerShell/test-process and published-process architecture checks.
 Native tests exercise the **renamed self-contained `.scr`**, real preview
 HWND/resize/parent death, settings and image export. Isolated runner MSI tests
-check no auto-selection/policy changes, repair, owned-reference removal and
+check no auto-selection/policy changes, repair, synthetic next-version upgrade, owned-reference removal and
 alternative/unowned-file preservation. Hosted users can be administrators:
 passing there alone does not prove standard-user/non-admin desktop acceptance.
 

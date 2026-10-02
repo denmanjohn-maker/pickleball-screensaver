@@ -28,5 +28,9 @@ foreach($run in @('a','b')){
     dotnet run @arguments (Join-Path $Output "replay-$run.png") 900 42 1280x720 '2026-01-01T12:00:00.0000000+00:00' rally-painting doubles slow
     if($LASTEXITCODE -ne 0){throw 'Replay export failed'}
 }
+foreach($mode in @('widgets','widgets-metric')){
+    dotnet run @arguments (Join-Path $Output "$mode.png") 910 42 1920x1080 '2026-01-01T12:00:00.0000000+00:00' classic doubles slow $mode
+    if($LASTEXITCODE -ne 0){throw 'Offline widget fixture export failed'}
+}
 if((Get-FileHash (Join-Path $Output 'replay-a.png')).Hash -ne (Get-FileHash (Join-Path $Output 'replay-b.png')).Hash){throw 'Seeded PNG replay differs'}
 Write-Host 'PASS: five distinct appearances, both formats, mixed viewport shapes, all motion modes, exact offline replay.'

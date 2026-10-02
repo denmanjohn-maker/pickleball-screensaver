@@ -118,10 +118,13 @@ jobs:
         run: |
           $payload = (Get-ChildItem artifacts -Directory | Where-Object { $_.Name -match '^PickleballScreensaver-1\.5\.0-${{ matrix.rid }}$' }).FullName
           ./packaging/build-msi.ps1 -Rid '${{ matrix.rid }}' -Payload "$payload" -Themes "$PWD/artifacts/themes" -Output "$PWD/artifacts/installers"
+          # Synthetic next-version fixture is test-only and is never uploaded as a product candidate.
+          ./packaging/build-msi.ps1 -Rid '${{ matrix.rid }}' -Payload "$payload" -Themes "$PWD/artifacts/themes" -Output "$PWD/artifacts/native-tests/upgrade" -Version 1.5.1
       - name: Installer registration, repair and owned-file/reference removal
         run: |
           $msi = (Get-ChildItem artifacts/installers -Filter *.msi).FullName
-          ./packaging/test-native-packages.ps1 -Msi "$msi" -Output "$PWD/artifacts/native-tests/msi" -IsolatedRunner
+          $upgrade = (Get-ChildItem artifacts/native-tests/upgrade -Filter *.msi).FullName
+          ./packaging/test-native-packages.ps1 -Msi "$msi" -UpgradeMsi "$upgrade" -Output "$PWD/artifacts/native-tests/msi" -IsolatedRunner
       - name: Optionally sign MSI candidate and write final checksums
         env:
           WINDOWS_SIGNING_PFX_BASE64: ${{ github.event_name == 'workflow_dispatch' && inputs.sign && github.ref == 'refs/heads/main' && secrets.WINDOWS_SIGNING_PFX_BASE64 || '' }}

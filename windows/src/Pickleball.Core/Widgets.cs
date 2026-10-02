@@ -84,6 +84,22 @@ public sealed record WeatherSnapshot(double Temperature, double Apparent, int Co
 public sealed record TournamentMetro(string Name, string State, double Latitude, double Longitude);
 public sealed record TournamentEntry(string Name, DateOnly Start, DateOnly? End, bool Canceled);
 public sealed record TournamentSnapshot(TournamentMetro Metro, int Months, ImmutableArray<TournamentEntry> Entries, int Total);
+public sealed record WidgetFixture(ProviderState<WeatherSnapshot> Weather, ProviderState<TournamentSnapshot> Tournaments)
+{
+    public static WidgetFixture Create(DateTimeOffset epoch, bool fahrenheit = true)
+    {
+        double Temperature(double f) => fahrenheit ? f : (f - 32) * 5 / 9;
+        var weather = new WeatherSnapshot(Temperature(72), Temperature(71), 2, 8, Temperature(80), Temperature(60), 10, 10,
+            "6:34 AM", "5:00 PM", Temperature(81), Temperature(61), 15, fahrenheit);
+        var date = DateOnly.FromDateTime(epoch.Date);
+        var tournaments = new TournamentSnapshot(new("Sample metro", "US", 0, 0), 3, [
+            new("Sample Doubles Open",date.AddDays(10),date.AddDays(12),false),
+            new("Sample Singles Invitational",date.AddDays(20),null,false),
+            new("Sample Community Cup",date.AddDays(30),null,true),
+            new("Sample Regional Championship",date.AddDays(45),null,false)], 4);
+        return new(new(weather, epoch, "Available"), new(tournaments, epoch, "Available"));
+    }
+}
 public static class TournamentMetros
 {
     public static ImmutableArray<TournamentMetro> All { get; } = [

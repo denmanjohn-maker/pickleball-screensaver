@@ -14,7 +14,7 @@ internal static class Program
         try
         {
             if (args.Length is < 5 or > 9)
-                throw new ArgumentException("Usage: Pickleball.Preview <output.png> <frame:0..36000> <seed:uint> <width>x<height> <ISO-8601 epoch> [appearance] [singles|doubles] [standard|slow|still|reduced] [wallpaper]");
+                throw new ArgumentException("Usage: Pickleball.Preview <output.png> <frame:0..36000> <seed:uint> <width>x<height> <ISO-8601 epoch> [appearance] [singles|doubles] [standard|slow|still|reduced] [wallpaper|widgets|widgets-metric]");
             var frame = int.Parse(args[1], CultureInfo.InvariantCulture);
             var seed = uint.Parse(args[2], CultureInfo.InvariantCulture);
             var size = args[3].Split('x');
@@ -32,10 +32,15 @@ internal static class Program
                 CourtMotion = args.Length > 7 && args[7] != "reduced" ? args[7] : "slow"
             };
             preferences.Validate();
-            if (args.Length > 8 && args[8] != "wallpaper") throw new ArgumentException("Unknown export mode");
+            if (args.Length > 8 && args[8] is not ("wallpaper" or "widgets" or "widgets-metric")) throw new ArgumentException("Unknown export mode");
             using var session = new RenderSession(clock, clock, networkAllowed: false, seed, preferences,
                 reducedMotion: args.Length > 7 && args[7] == "reduced");
-            using var scene = new RallyScene(session, preferences) { WallpaperOnly = args.Length > 8 };
+            using var scene = new RallyScene(session, preferences)
+            {
+                WallpaperOnly = args.Length > 8 && args[8] == "wallpaper",
+                Fixture = args.Length > 8 && args[8].StartsWith("widgets", StringComparison.Ordinal)
+                    ? WidgetFixture.Create(epoch, args[8] != "widgets-metric") : null
+            };
             for (var index = 0; index < frame; index++)
             {
                 var target = TimeSpan.FromTicks((index + 1L) * TimeSpan.TicksPerSecond / 60);
