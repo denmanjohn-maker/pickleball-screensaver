@@ -49,7 +49,7 @@ for appearance in classic blacklight living-court ink-and-paper rally-painting; 
     --motion=standard --size=320x180 --sample-every=60 --frame=7
   cmp "$work/$appearance/frame_00007.png" "$work/$appearance-repeat/frame_00007.png"
 done
-for appearance in blacklight ink-and-paper rally-painting; do
+for appearance in blacklight living-court ink-and-paper rally-painting; do
   if cmp -s "$work/classic/frame_00007.png" "$work/$appearance/frame_00007.png"; then
     echo "FAIL: $appearance has no visible appearance change" >&2
     exit 1

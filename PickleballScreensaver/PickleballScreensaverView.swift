@@ -77,6 +77,7 @@ class PickleballScreensaverView: ScreenSaverView {
     private var theme: Theme = .classic
 
     func applyAppearance(_ preset: AppearancePreset) {
+        guard appearancePreset != preset else { return }
         appearancePreset = preset
         theme = preset.theme
         art.reset()

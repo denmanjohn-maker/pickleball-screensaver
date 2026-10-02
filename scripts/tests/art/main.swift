@@ -169,6 +169,45 @@ check(ThemeSettings.load().theme == saved, "Cancel saved a selection")
 controller.refresh()
 check(popup?.titleOfSelectedItem == ThemeSettings(theme: saved).appearance.title, "Refresh kept cancelled selection")
 
+func render(_ view: PickleballScreensaverView) -> Data {
+    bitmap(width: Int(view.bounds.width), height: Int(view.bounds.height)) { ctx in
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+        view.draw(view.bounds)
+        NSGraphicsContext.current = nil
+    }
+}
+func artView(_ preset: AppearancePreset) -> PickleballScreensaverView {
+    let view = PickleballScreensaverView(frame: NSRect(x: 0, y: 0, width: 320, height: 180), isPreview: true)!
+    view.ambientEnabled = false
+    view.courtMotion = .still
+    view.previewDate = Date(timeIntervalSince1970: 1_791_014_400)
+    view.applyAppearance(preset)
+    view.reseed(42)
+    return view
+}
+let retained = artView(.rallyPainting)
+for n in 0..<1200 { retained.step(now: 90 + Double(n) / 60, dt: 1 / 60) }
+let beforeUnchangedOptions = render(retained)
+retained.applyAppearance(.rallyPainting)
+check(render(retained) == beforeUnchangedOptions, "Unchanged appearance erased accumulated painting")
+retained.applyAppearance(.classic)
+retained.applyAppearance(.rallyPainting)
+check(render(retained) != beforeUnchangedOptions, "Changing appearance did not reset painting")
+
+let classicView = artView(.classic)
+let livingView = artView(.livingCourt)
+var comparedImpact = false
+for n in 0..<600 {
+    classicView.step(now: 90 + Double(n) / 60, dt: 1 / 60)
+    livingView.step(now: 90 + Double(n) / 60, dt: 1 / 60)
+    if !livingView.rallyEvents.isEmpty {
+        check(render(classicView) != render(livingView), "Living Court impact is not visibly rendered")
+        comparedImpact = true
+        break
+    }
+}
+check(comparedImpact, "Living Court visual comparison did not reach an impact")
+
 for preset in AppearancePreset.allCases {
     for size in [NSSize(width: 320, height: 180), NSSize(width: 1280, height: 720),
                  NSSize(width: 1080, height: 1920)] {
