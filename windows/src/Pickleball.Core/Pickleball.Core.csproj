@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="../../../PickleballScreensaver/Resources/drills.json" LogicalName="Pickleball.Shared.drills.json" />
+    <EmbeddedResource Include="../../../PickleballScreensaver/Resources/paddle.png" LogicalName="Pickleball.Shared.paddle.png" />
+    <EmbeddedResource Include="../../../PickleballScreensaver/Resources/background.png" LogicalName="Pickleball.Shared.background.png" />
+    <EmbeddedResource Include="../../../assets/icon/icon.svg" LogicalName="Pickleball.Shared.icon.svg" />
+  </ItemGroup>
+</Project>
