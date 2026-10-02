@@ -133,6 +133,10 @@ internal static class Program
                     Check(IsWow64Process2(process.Handle, out var emulated, out var native) && emulated == 0
                         && native == (expected == Architecture.Arm64 ? 0xaa64 : 0x8664),
                         "Renamed published .scr must run natively, not as an emulated process.");
+                    var runtime = process.Modules.Cast<ProcessModule>()
+                        .Single(module => string.Equals(module.ModuleName, "coreclr.dll", StringComparison.OrdinalIgnoreCase));
+                    Check(runtime.FileName.StartsWith(Path.Combine(directory, "bundle") + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase),
+                        "Published saver must load its own extracted runtime, not the runner's installed SDK/runtime.");
                     NativeMethods.Place(externalParent.Handle, new(0, 0, 640, 480));
                     WaitWhilePumping(() =>
                     {

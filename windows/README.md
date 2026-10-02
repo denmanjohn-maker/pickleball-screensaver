@@ -188,12 +188,15 @@ Swift seed-42 singles/doubles 180s traces), nine Python publish/CAB audits,
 five-project WPF reference cross-build, format validation; final macOS engine,
 camera and artwork regressions also pass. See PR/native CI for current
 published `.scr`, screenshot, CAB and MSI results. Native run
-[36998528519](https://github.com/denmanjohn-maker/pickleball-screensaver/actions/runs/36998528519)
+[36999440483](https://github.com/denmanjohn-maker/pickleball-screensaver/actions/runs/36999440483)
 passed all 81 core tests, renamed `.scr` child-preview lifecycle/architecture,
 accessible configuration labels, all five appearance/two-format image fixtures,
 all motion/portrait/4K/ultrawide fixtures, deterministic PNG replay and true CAB
-inventory checks on both native architectures. MSI authoring succeeded;
-its install exposed a missing AppSearch table, fixed in the next iteration.
+inventory checks on both native architectures. MSI authoring and current-user
+install/repair/synthetic upgrade/uninstall all passed, including owned quoted
+selection removal, alternative selection/unowned-file preservation and no
+automatic selection or policy changes. Downloaded native screenshots were
+visually inspected for all five appearances and synthetic provider cards.
 These results do not substitute for the desktop/signing gates below.
 
 `windows-2025` is an **x64 Windows Server** runner, not Windows 11 desktop

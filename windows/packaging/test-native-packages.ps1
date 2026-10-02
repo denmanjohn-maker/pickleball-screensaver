@@ -24,6 +24,7 @@ try {
     if(-not(Test-Path -LiteralPath $saver)){throw 'Current-user stable saver path missing'}
     foreach($key in $keys){if((Get-ItemProperty $desktop).$key -ne $backup[$key]){throw "Install changed protected $key"}}
     Set-Content -LiteralPath (Join-Path $installed 'unowned-sentinel.txt') 'Must survive uninstall'
+    Remove-Item -LiteralPath $saver
     Invoke-Msi @('/fa',"`"$([IO.Path]::GetFullPath($Msi))`"",'/qn','/l*v',"`"$(Join-Path $directory 'repair.log')`"")
     if(-not(Test-Path -LiteralPath $saver)){throw 'Repair failed'}
     $uninstallMsi=$Msi
