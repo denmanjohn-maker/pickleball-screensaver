@@ -29,6 +29,22 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Verify Windows and macOS product versions agree
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import plistlib
+          import xml.etree.ElementTree as ET
+
+          mac = plistlib.loads(Path("../PickleballScreensaver/Info.plist").read_bytes())
+          windows = ET.parse("Directory.Build.props").findtext("./PropertyGroup/Version")
+          expected = mac["CFBundleShortVersionString"]
+          if len(expected.split(".")) == 2:
+              expected += ".0"
+          if windows != expected:
+              raise SystemExit(f"Windows version {windows} must match macOS {expected}")
+          print(f"Both platforms use product version {windows}")
+          PY
       - run: dotnet test tests/Pickleball.Core.Tests -c Release --nologo
       - run: python3 -B -m unittest discover -s packaging -p 'test_*.py'
       - name: Regenerate unchanged Swift golden contact traces
@@ -121,10 +137,10 @@ jobs:
         run: ./packaging/test-render.ps1 -Output "$PWD/artifacts/native-tests"
       - name: Build native current-user MSI without third-party installer tooling
         run: |
-          $payload = (Get-ChildItem artifacts -Directory | Where-Object { $_.Name -match '^PickleballScreensaver-1\.5\.0-${{ matrix.rid }}$' }).FullName
+          $payload = (Get-ChildItem artifacts -Directory | Where-Object { $_.Name -match '^PickleballScreensaver-1\.6\.0-${{ matrix.rid }}$' }).FullName
           ./packaging/build-msi.ps1 -Rid '${{ matrix.rid }}' -Payload "$payload" -Themes "$PWD/artifacts/themes" -Output "$PWD/artifacts/installers"
           # Synthetic next-version fixture is test-only and is never uploaded as a product candidate.
-          ./packaging/build-msi.ps1 -Rid '${{ matrix.rid }}' -Payload "$payload" -Themes "$PWD/artifacts/themes" -Output "$PWD/artifacts/native-tests/upgrade" -Version 1.5.1
+          ./packaging/build-msi.ps1 -Rid '${{ matrix.rid }}' -Payload "$payload" -Themes "$PWD/artifacts/themes" -Output "$PWD/artifacts/native-tests/upgrade" -Version 1.6.1
       - name: Installer registration, repair and owned-file/reference removal
         run: |
           $msi = (Get-ChildItem artifacts/installers -Filter *.msi).FullName

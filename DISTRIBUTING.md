@@ -181,8 +181,8 @@ Ship that final zip. Recipients just double-click — no warnings.
 
 Windows 11 ARM64/x64 code, current-user MSI, complete self-contained portable
 ZIPs and architecture-independent Classic/Black Light CAB theme packs live
-under [`windows/`](windows/README.md). Product version 1.5 uses the .NET/MSI
-numeric version 1.5.0. Windows architecture is explicit in every saver/installer
+under [`windows/`](windows/README.md). Product version 1.6 uses the .NET/MSI
+numeric version 1.6.0. Windows architecture is explicit in every saver/installer
 filename, with individual SHA-256 files. No .NET installation is required.
 
 `.github/workflows/windows-foundation.yml` now validates the real engine,
@@ -196,7 +196,7 @@ nor Apple signing/notarization satisfies those gates.
 The existing **Release** workflow is the only release owner. Windows validation
 uploads CI artifacts only—even its explicitly requested, main-only signing
 path never creates a release. Keep macOS versionless asset URLs unchanged.
-Do not rerun/publish over the existing `v1.5` automatically. After documented
+Do not rerun/publish over the existing `v1.5` or `v1.6` automatically. After documented
 desktop acceptance and explicit maintainer approval, the single release owner
 can attach reviewed architecture-labeled Windows packages and checksums.
 Windows signing secrets are independent of all Apple secrets; signing does
