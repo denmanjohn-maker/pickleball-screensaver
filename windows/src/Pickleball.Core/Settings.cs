@@ -1,4 +1,7 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
+using System.Collections.Concurrent;
 
 namespace Pickleball.Core;
 
@@ -56,6 +59,17 @@ public sealed class SettingsStore(string path)
     {
         try
         {
+            using var gate = Acquire();
+            return LoadUnlocked();
+        }
+        catch (IOException) { return new(SettingsStatus.Unavailable, new()); }
+        catch (UnauthorizedAccessException) { return new(SettingsStatus.Unavailable, new()); }
+    }
+
+    private SettingsLoad LoadUnlocked()
+    {
+        try
+        {
             if (!File.Exists(Path)) return new(SettingsStatus.Missing, new());
             using var stream = new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
             if (stream.Length > MaximumBytes) return new(SettingsStatus.Corrupt, new());
@@ -83,7 +97,8 @@ public sealed class SettingsStore(string path)
     public void Save(Preferences settings, bool explicitlyReset = false)
     {
         settings.Validate();
-        var existing = Load();
+        using var gate = Acquire();
+        var existing = LoadUnlocked();
         if (existing.Status == SettingsStatus.Unavailable
             || (existing.RequiresExplicitReset && !explicitlyReset))
             throw new IOException("Settings cannot be replaced without an explicit reset.");
@@ -105,5 +120,38 @@ public sealed class SettingsStore(string path)
         {
             if (File.Exists(staging)) File.Delete(staging);
         }
+    }
+
+    private static readonly ConcurrentDictionary<string, object> LocalGates = new();
+    private IDisposable Acquire()
+    {
+        if (!OperatingSystem.IsWindows()) return new LocalLease(LocalGates.GetOrAdd(Path, _ => new()));
+        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.ToUpperInvariant())));
+        return new WindowsLease("Local\\PickleballSettings-" + key);
+    }
+    private sealed class LocalLease : IDisposable
+    {
+        private readonly object gate;
+        public LocalLease(object gate)
+        {
+            this.gate = gate;
+            if (!Monitor.TryEnter(gate, TimeSpan.FromSeconds(5))) throw new IOException("Preferences busy.");
+        }
+        public void Dispose() => Monitor.Exit(gate);
+    }
+    private sealed class WindowsLease : IDisposable
+    {
+        private readonly Mutex mutex;
+        public WindowsLease(string name)
+        {
+            mutex = new(false, name);
+            try
+            {
+                if (!mutex.WaitOne(TimeSpan.FromSeconds(5))) throw new IOException("Preferences busy.");
+            }
+            catch (AbandonedMutexException) { /* Atomic staging keeps crash recovery explicit in LoadUnlocked. */ }
+            catch { mutex.Dispose(); throw; }
+        }
+        public void Dispose() { mutex.ReleaseMutex(); mutex.Dispose(); }
     }
 }

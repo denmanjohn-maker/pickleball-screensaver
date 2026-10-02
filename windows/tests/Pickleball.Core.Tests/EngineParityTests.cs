@@ -30,13 +30,22 @@ public sealed class EngineParityTests
             engine.SetFormat(run.GetProperty("format").GetString() == "singles" ? GameFormat.Singles : GameFormat.Doubles);
             engine.Reseed(42);
             var expected = run.GetProperty("contacts").EnumerateArray().ToArray();
+            var bounces = run.GetProperty("bounceEvents").EnumerateArray().ToArray();
             var contactIndex = 0;
+            var bounceIndex = 0;
             for (var frame = 0; frame < 180 * 120; frame++)
             {
                 engine.Step(1.0 / 120);
                 foreach (var e in engine.FrameEvents)
                 {
-                    if (e.Contact is not { } c) continue;
+                    if (e.Contact is not { } c)
+                    {
+                        Assert.True(bounceIndex < bounces.Length);
+                        var bounce = bounces[bounceIndex++];
+                        Assert.Equal(bounce.GetProperty("frame").GetInt32(), frame);
+                        Compare(bounce.GetProperty("position"), e.Position, $"{engine.Format} bounce={bounceIndex} frame={frame}");
+                        continue;
+                    }
                     Assert.True(contactIndex < expected.Length, "Port produced an extra contact.");
                     var golden = expected[contactIndex++];
                     Assert.Equal(golden.GetProperty("frame").GetInt32(), frame);
@@ -57,6 +66,7 @@ public sealed class EngineParityTests
                 }
             }
             Assert.Equal(expected.Length, contactIndex);
+            Assert.Equal(bounces.Length, bounceIndex);
             Assert.Equal(run.GetProperty("nearScore").GetInt32(), engine.NearScore);
             Assert.Equal(run.GetProperty("farScore").GetInt32(), engine.FarScore);
             Assert.Equal(run.GetProperty("nearGames").GetInt32(), engine.NearGames);

@@ -48,7 +48,10 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - name: Build two architecture-independent clean wallpaper CAB theme packs
-        run: ./packaging/build-themes.ps1 -Output "$PWD/artifacts/themes"
+        run: |
+          ./packaging/build-themes.ps1 -Output "$PWD/artifacts/themes"
+          python packaging/audit_themes.py artifacts/themes
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: Windows-shared-theme-packs
@@ -137,6 +140,7 @@ jobs:
             "$hash  $($file.Name)" | Set-Content "$($file.FullName).sha256" -Encoding ASCII
           }
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Windows-candidate-${{ matrix.rid }}
           path: |

@@ -7,9 +7,14 @@ for format in [GameFormat.doubles, .singles] {
     engine.setFormat(format)
     engine.reseed(42)
     var contacts: [[String: Any]] = []
+    var bounces: [[String: Any]] = []
     for frame in 0..<(180 * 120) {
         engine.step(dt: 1.0 / 120)
         for event in engine.frameEvents {
+            if case .bounce(let p) = event {
+                bounces.append(["frame": frame, "position": [p.x, p.y, p.z]])
+                continue
+            }
             guard case .contact(let c) = event else { continue }
             contacts.append([
                 "frame": frame, "number": c.number, "type": c.type.rawValue,
@@ -21,7 +26,7 @@ for format in [GameFormat.doubles, .singles] {
             ])
         }
     }
-    runs.append(["format": format.rawValue, "contacts": contacts,
+    runs.append(["format": format.rawValue, "contacts": contacts, "bounceEvents": bounces,
                  "nearScore": engine.nearScore, "farScore": engine.farScore,
                  "nearGames": engine.nearGames, "farGames": engine.farGames])
 }
