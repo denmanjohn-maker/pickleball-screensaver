@@ -105,6 +105,12 @@ python3 packaging/publish.py --rid win-arm64
 python3 packaging/publish.py --rid win-x64
 ```
 
+Publishing requires the generated `artifacts/themes` CABs first; build them on
+Windows with `build-themes.ps1`, or download the shared-theme CI artifact into
+that directory for a cross-publish. `--themes` accepts another directory beneath
+`windows/`. Both CABs and their checksums are included in each complete portable
+ZIP, so its explicit Classic/Blacklight helper actions have their payloads.
+
 SDK selection rolls forward within .NET 10. `--dotnet /path/to/dotnet`
 supports a task-local SDK. `--output` must stay beneath `windows/`; use a fresh
 directory when repeating publishes. Trimming and AOT are explicitly disabled.
@@ -151,6 +157,8 @@ Blacklight actions. Selection asks confirmation and changes only the user's
 clears that reference only if it still names this installed saver; another
 saver is untouched. Windows-imported themes remain user-owned customization.
 Portable users can run `/c` and use `Maintain.ps1 -Action Select` explicitly.
+Use `-Action Classic`/`Blacklight` to import an included theme only when desired,
+and `-Action Uninstall` before removing a selected portable saver.
 
 WiX was evaluated, but **is not a dependency**: its current official
 [OSMFEULA](https://github.com/wixtoolset/wix/blob/main/OSMFEULA.txt)
@@ -188,12 +196,15 @@ Swift seed-42 singles/doubles 180s traces), nine Python publish/CAB audits,
 five-project WPF reference cross-build, format validation; final macOS engine,
 camera and artwork regressions also pass. See PR/native CI for current
 published `.scr`, screenshot, CAB and MSI results. Native run
-[36998528519](https://github.com/denmanjohn-maker/pickleball-screensaver/actions/runs/36998528519)
+[36999440483](https://github.com/denmanjohn-maker/pickleball-screensaver/actions/runs/36999440483)
 passed all 81 core tests, renamed `.scr` child-preview lifecycle/architecture,
 accessible configuration labels, all five appearance/two-format image fixtures,
 all motion/portrait/4K/ultrawide fixtures, deterministic PNG replay and true CAB
-inventory checks on both native architectures. MSI authoring succeeded;
-its install exposed a missing AppSearch table, fixed in the next iteration.
+inventory checks on both native architectures. MSI authoring and current-user
+install/repair/synthetic upgrade/uninstall all passed, including owned quoted
+selection removal, alternative selection/unowned-file preservation and no
+automatic selection or policy changes. Downloaded native screenshots were
+visually inspected for all five appearances and synthetic provider cards.
 These results do not substitute for the desktop/signing gates below.
 
 `windows-2025` is an **x64 Windows Server** runner, not Windows 11 desktop

@@ -133,6 +133,11 @@ internal static class Program
                     Check(IsWow64Process2(process.Handle, out var emulated, out var native) && emulated == 0
                         && native == (expected == Architecture.Arm64 ? 0xaa64 : 0x8664),
                         "Renamed published .scr must run natively, not as an emulated process.");
+                    // .NET 10 singlefilehost statically links CoreCLR; no coreclr.dll module is expected.
+                    Check(HasStaticRuntimeContract(args[2]), "Published single-file host must contain its own static runtime contract.");
+                    var extraction = Path.Combine(directory, "bundle") + Path.DirectorySeparatorChar;
+                    Check(process.Modules.Cast<ProcessModule>().Any(module => module.FileName.StartsWith(extraction, StringComparison.OrdinalIgnoreCase)),
+                        "Running WPF must load native dependencies from the configured bundle cache.");
                     NativeMethods.Place(externalParent.Handle, new(0, 0, 640, 480));
                     WaitWhilePumping(() =>
                     {
@@ -191,5 +196,27 @@ internal static class Program
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidOperationException(message);
+    }
+    private static bool HasStaticRuntimeContract(string path)
+    {
+        using var input = File.OpenRead(path);
+        using var pe = new System.Reflection.PortableExecutable.PEReader(input);
+        var directory = pe.PEHeaders.PEHeader!.ExportTableDirectory;
+        if (directory.RelativeVirtualAddress == 0) return false;
+        var exports = pe.GetSectionData(directory.RelativeVirtualAddress).GetReader();
+        exports.Offset = 24;
+        var count = exports.ReadUInt32();
+        exports.Offset += 4;
+        var names = pe.GetSectionData(exports.ReadInt32()).GetReader();
+        if (count > 10000) return false;
+        for (var i = 0; i < count; i++)
+        {
+            var name = pe.GetSectionData(names.ReadInt32()).GetReader();
+            var text = new System.Text.StringBuilder();
+            byte letter;
+            while ((letter = name.ReadByte()) != 0 && text.Length < 256) text.Append((char)letter);
+            if (text.ToString() == "DotNetRuntimeInfo") return true;
+        }
+        return false;
     }
 }
