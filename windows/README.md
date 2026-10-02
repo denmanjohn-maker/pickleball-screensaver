@@ -182,12 +182,19 @@ through the one release-owner path; no competing Windows publisher exists.
 
 ## Evidence and outstanding acceptance
 
-Local macOS: 80 platform-neutral .NET tests (including exact contact frames,
+Local macOS: 81 platform-neutral .NET tests (including exact contact and bounce frames,
 types, players, received bounces/scores and ≤1e-7 vectors against unchanged
-Swift seed-42 singles/doubles 180s traces), seven Python publish audits,
+Swift seed-42 singles/doubles 180s traces), nine Python publish/CAB audits,
 five-project WPF reference cross-build, format validation; final macOS engine,
 camera and artwork regressions also pass. See PR/native CI for current
-published `.scr`, screenshot, CAB and MSI results.
+published `.scr`, screenshot, CAB and MSI results. Native run
+[36998528519](https://github.com/denmanjohn-maker/pickleball-screensaver/actions/runs/36998528519)
+passed all 81 core tests, renamed `.scr` child-preview lifecycle/architecture,
+accessible configuration labels, all five appearance/two-format image fixtures,
+all motion/portrait/4K/ultrawide fixtures, deterministic PNG replay and true CAB
+inventory checks on both native architectures. MSI authoring succeeded;
+its install exposed a missing AppSearch table, fixed in the next iteration.
+These results do not substitute for the desktop/signing gates below.
 
 `windows-2025` is an **x64 Windows Server** runner, not Windows 11 desktop
 acceptance. `windows-11-arm` runs **native ARM64 Windows 11** with explicit OS,

@@ -9,7 +9,13 @@ $backup=@{}
 foreach($key in $keys){$backup[$key]=$before.$key}
 function Invoke-Msi([string[]]$arguments) {
     $process=Start-Process msiexec.exe -ArgumentList $arguments -Wait -PassThru
-    if($process.ExitCode -notin @(0,3010)){throw "MSI failed ($($process.ExitCode)); inspect isolated MSI log"}
+    if($process.ExitCode -notin @(0,3010)){
+        $log=$arguments[-1].Trim('"')
+        if(Test-Path -LiteralPath $log){
+            Get-Content -LiteralPath $log -Encoding Unicode | Select-String 'DEBUG: Error|Return value 3|Error [0-9]|failed' | ForEach-Object {Write-Host $_.Line}
+        }
+        throw "MSI failed ($($process.ExitCode)); inspect isolated MSI log"
+    }
 }
 $installed=Join-Path $env:LOCALAPPDATA 'Programs\PickleballScreensaver'
 $saver=Join-Path $installed 'PickleballScreensaver.scr'

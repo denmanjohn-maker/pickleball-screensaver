@@ -72,6 +72,7 @@ $schemas = @(
     'CREATE TABLE `LaunchCondition` (`Condition` CHAR(255) NOT NULL, `Description` CHAR(255) NOT NULL LOCALIZABLE PRIMARY KEY `Condition`)',
     'CREATE TABLE `AppSearch` (`Property` CHAR(72) NOT NULL, `Signature_` CHAR(72) NOT NULL PRIMARY KEY `Property`, `Signature_`)',
     'CREATE TABLE `RegLocator` (`Signature_` CHAR(72) NOT NULL, `Root` SHORT NOT NULL, `Key` CHAR(255) NOT NULL, `Name` CHAR(255), `Type` SHORT PRIMARY KEY `Signature_`)',
+    'CREATE TABLE `Signature` (`Signature` CHAR(72) NOT NULL, `FileName` CHAR(255) NOT NULL LOCALIZABLE, `MinVersion` CHAR(20), `MaxVersion` CHAR(20), `MinSize` LONG, `MaxSize` LONG, `MinDate` LONG, `MaxDate` LONG, `Languages` CHAR(255) PRIMARY KEY `Signature`)',
     'CREATE TABLE `Registry` (`Registry` CHAR(72) NOT NULL, `Root` SHORT NOT NULL, `Key` CHAR(255) NOT NULL LOCALIZABLE, `Name` CHAR(255) LOCALIZABLE, `Value` CHAR(0) LOCALIZABLE, `Component_` CHAR(72) NOT NULL PRIMARY KEY `Registry`)',
     'CREATE TABLE `Shortcut` (`Shortcut` CHAR(72) NOT NULL, `Directory_` CHAR(72) NOT NULL, `Name` CHAR(128) NOT NULL LOCALIZABLE, `Component_` CHAR(72) NOT NULL, `Target` CHAR(255) NOT NULL LOCALIZABLE, `Arguments` CHAR(255) LOCALIZABLE, `Description` CHAR(255) LOCALIZABLE, `Hotkey` SHORT, `Icon_` CHAR(72), `IconIndex` SHORT, `ShowCmd` SHORT, `WkDir` CHAR(72) PRIMARY KEY `Shortcut`)',
     'CREATE TABLE `Upgrade` (`UpgradeCode` CHAR(38) NOT NULL, `VersionMin` CHAR(20), `VersionMax` CHAR(20), `Language` CHAR(255), `Attributes` LONG NOT NULL, `Remove` CHAR(255), `ActionProperty` CHAR(72) NOT NULL PRIMARY KEY `UpgradeCode`,`VersionMin`,`VersionMax`,`Language`,`Attributes`)',
@@ -146,7 +147,7 @@ foreach ($action in @('Select','Classic','Blacklight')) {
 Row CustomAction @('Action','Type','Source','Target') @('CleanupSelection',34,'System64Folder',
     'WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File "[INSTALLFOLDER]Maintain.ps1" -Action Uninstall -Saver "[INSTALLFOLDER]PickleballScreensaver.scr"')
 $actions = @{
-    AppSearch=50; LaunchConditions=100; FindRelatedProducts=200; CostInitialize=800; FileCost=900; CostFinalize=1000;
+    FindRelatedProducts=25; AppSearch=50; LaunchConditions=100; CostInitialize=800; FileCost=900; CostFinalize=1000;
     MigrateFeatureStates=1200; InstallValidate=1400; InstallInitialize=1500; RemoveExistingProducts=1550;
     ProcessComponents=1600; UnpublishFeatures=1800; RemoveShortcuts=3200; RemoveFiles=3500; InstallFiles=4000;
     CreateShortcuts=4500; WriteRegistryValues=5000; RemoveRegistryValues=2600; RegisterUser=6000; RegisterProduct=6100;
