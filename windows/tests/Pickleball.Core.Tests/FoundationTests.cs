@@ -169,7 +169,7 @@ public sealed class SettingsTests : IDisposable
     public void SaveRoundTripsAndLeavesNoStagingFile(string theme)
     {
         store.Save(new() { Theme = theme });
-        Assert.Equal(SettingsStatus.Loaded, store.Load().Status);
+        Assert.Equal(SettingsStatus.Loaded, new SettingsStore(store.Path).Load().Status);
         Assert.Equal(theme, store.Load().Value.Theme);
         store.Save(new() { Theme = "classic" });
         Assert.Single(Directory.GetFiles(directory));

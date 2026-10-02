@@ -14,6 +14,8 @@ public sealed class RallyScene : FrameworkElement, IDisposable
     private Size projectionSize;
     private Palette palette = Palette.Named("classic");
     private string preset = "";
+    private DrawingGroup? projectedPaper;
+    private string paperKey = "";
     private readonly Dictionary<int, (string Key, ImmutableArray<PaintSample> Samples, Geometry Ribbon, Geometry Spine)> brushCache = [];
     private readonly Dictionary<int, BitmapSource> paddles = [];
     private static readonly BitmapSource Background = ReadImage("background.png");
@@ -43,7 +45,7 @@ public sealed class RallyScene : FrameworkElement, IDisposable
         if (ActualWidth <= 0 || ActualHeight <= 0) return;
         if (preset != Frame.Settings.Theme)
         {
-            preset = Frame.Settings.Theme; palette = Palette.Named(preset); paddles.Clear(); brushCache.Clear();
+            preset = Frame.Settings.Theme; palette = Palette.Named(preset); paddles.Clear(); brushCache.Clear(); projectedPaper = null;
         }
         if (projection is null || projectionSize != RenderSize)
         {
@@ -125,10 +127,22 @@ public sealed class RallyScene : FrameworkElement, IDisposable
         dc.PushClip(court);
         if (preset == "ink-and-paper")
         {
-            for (var i = 0; i < ArtTextures.Washes.Length; i++)
-                dc.DrawGeometry(Palette.Brush(i % 3 == 0 ? palette.TeamB : palette.TeamA, i % 3 == 0 ? .025 : .045), null,
-                    Path(ArtTextures.Washes[i].Select(P), true));
-            foreach (var (a, b) in ArtTextures.Fibers) Line(dc, a, b, Palette.Rgb(.30, .25, .17, .08), .45);
+            if (projectedPaper is null || paperKey != projection.CacheKey)
+            {
+                var drawing = new DrawingGroup();
+                using (var paper = drawing.Open())
+                {
+                    for (var i = 0; i < ArtTextures.Washes.Length; i++)
+                        paper.DrawGeometry(Palette.Brush(i % 3 == 0 ? palette.TeamB : palette.TeamA, i % 3 == 0 ? .025 : .045), null,
+                            Path(ArtTextures.Washes[i].Select(P), true));
+                    var fiber = new Pen(Palette.Brush(Palette.Rgb(.30, .25, .17, .08)), .45)
+                    { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+                    fiber.Freeze();
+                    foreach (var (a, b) in ArtTextures.Fibers) paper.DrawLine(fiber, P(a), P(b));
+                }
+                drawing.Freeze(); projectedPaper = drawing; paperKey = projection.CacheKey;
+            }
+            dc.DrawDrawing(projectedPaper);
         }
         else
         {
@@ -289,7 +303,12 @@ public sealed class RallyScene : FrameworkElement, IDisposable
                 rows.Add($"{weather.TemperatureText(weather.Temperature)}   {weather.Label}   Feels {weather.TemperatureText(weather.Apparent)}");
                 rows.Add($"H {weather.TemperatureText(weather.High)}  L {weather.TemperatureText(weather.Low)}   Wind {weather.WindText}  Rain {weather.Precipitation}%");
                 rows.Add($"Sunrise {weather.Sunrise}   Sunset {weather.Sunset}");
-                if (weather.TomorrowHigh is { } tomorrow) rows.Add($"Tomorrow  H {weather.TemperatureText(tomorrow)}  L {weather.TemperatureText(weather.TomorrowLow ?? tomorrow)}  Rain {weather.TomorrowPrecipitation ?? 0}%");
+                if (weather.TomorrowHigh is { } tomorrow)
+                {
+                    var low = weather.TomorrowLow is { } nextLow ? weather.TemperatureText(nextLow) : "—";
+                    var rain = weather.TomorrowPrecipitation is { } chance ? $"{chance}%" : "—";
+                    rows.Add($"Tomorrow  H {weather.TemperatureText(tomorrow)}  L {low}  Rain {rain}");
+                }
                 rows.Add(weather.Verdict);
                 if (state.IsStale(Frame.WallTime, TimeSpan.FromMinutes(35)) || state.Status != "Available") rows.Add("Stale — retrying");
                 DrawWeatherIcon(dc, new(x + width - pad - u * .07, top + pad), u * .04, weather.Code);

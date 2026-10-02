@@ -2,6 +2,7 @@ using System.IO;
 using System.Net.Http;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using Pickleball.Core;
 
@@ -34,8 +35,10 @@ public sealed class ConfigureWindow : Window
         fahrenheit = Toggle(panel, "Fahrenheit / mph (unchecked: Celsius / km/h)", draft.UseFahrenheit);
         tournaments = Toggle(panel, "Show nearby tournaments (supported US metros only)", draft.TournamentsEnabled);
         months = Choice(panel, "Tournament window", ["1", "3"], draft.TournamentMonths.ToString(System.Globalization.CultureInfo.InvariantCulture));
-        panel.Children.Add(new TextBlock { Text = "City shared by weather and tournaments", Margin = new Thickness(0, 12, 0, 4) });
-        city = new TextBox { Text = draft.LocationName, MaxLength = 200 }; panel.Children.Add(city);
+        city = new TextBox { Text = draft.LocationName, MaxLength = 200 };
+        var cityLabel = new Label { Content = "City shared by weather and tournaments", Target = city, Padding = new Thickness(0), Margin = new Thickness(0, 12, 0, 4) };
+        AutomationProperties.SetLabeledBy(city, cityLabel); panel.Children.Add(cityLabel);
+        panel.Children.Add(city);
         locationStatus = new TextBlock { Text = draft.HasLocation ? draft.LocationName : "No city selected", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 6) };
         panel.Children.Add(locationStatus);
         var find = new Button { Content = "Find city (requires internet)", HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(10, 4, 10, 4) };
@@ -72,8 +75,10 @@ public sealed class ConfigureWindow : Window
     }
     private static ComboBox Choice(Panel panel, string title, IEnumerable<string> values, string selected)
     {
-        panel.Children.Add(new TextBlock { Text = title, Margin = new Thickness(0, 8, 0, 4) });
-        var box = new ComboBox { ItemsSource = values, SelectedItem = selected }; panel.Children.Add(box); return box;
+        var box = new ComboBox { ItemsSource = values, SelectedItem = selected };
+        var label = new Label { Content = title, Target = box, Padding = new Thickness(0), Margin = new Thickness(0, 8, 0, 4) };
+        AutomationProperties.SetLabeledBy(box, label); panel.Children.Add(label);
+        panel.Children.Add(box); return box;
     }
     private static CheckBox Toggle(Panel panel, string title, bool selected)
     {

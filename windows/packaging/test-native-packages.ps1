@@ -22,10 +22,10 @@ try {
     if(-not(Test-Path -LiteralPath $saver)){throw 'Repair failed'}
     $uninstallMsi=$Msi
     if($UpgradeMsi) {
-        Set-ItemProperty $desktop 'SCRNSAVE.EXE' $saver
+        Set-ItemProperty $desktop 'SCRNSAVE.EXE' ('"' + $saver + '"')
         Invoke-Msi @('/i',"`"$([IO.Path]::GetFullPath($UpgradeMsi))`"",'/qn','/l*v',"`"$(Join-Path $directory 'upgrade.log')`"")
         if(-not(Test-Path -LiteralPath $saver)){throw 'Upgrade lost stable saver'}
-        if((Get-ItemPropertyValue $desktop 'SCRNSAVE.EXE') -ne $saver){throw 'Upgrade cleared owned selection'}
+        if((Get-ItemPropertyValue $desktop 'SCRNSAVE.EXE') -ne ('"' + $saver + '"')){throw 'Upgrade cleared owned selection'}
         $uninstallMsi=$UpgradeMsi
     }
     Set-ItemProperty $desktop 'SCRNSAVE.EXE' 'C:\UnrelatedScreensaver.scr'
@@ -34,9 +34,9 @@ try {
     if(Test-Path -LiteralPath $saver){throw 'Uninstall left owned saver'}
     if(-not(Test-Path -LiteralPath (Join-Path $installed 'unowned-sentinel.txt'))){throw 'Uninstall deleted an unowned file'}
     Invoke-Msi @('/i',"`"$([IO.Path]::GetFullPath($Msi))`"",'/qn','/l*v',"`"$(Join-Path $directory 'reinstall.log')`"")
-    Set-ItemProperty $desktop 'SCRNSAVE.EXE' $saver
+    Set-ItemProperty $desktop 'SCRNSAVE.EXE' ('"' + $saver + '"')
     Invoke-Msi @('/x',"`"$([IO.Path]::GetFullPath($Msi))`"",'/qn','/l*v',"`"$(Join-Path $directory 'uninstall-owned.log')`"")
-    if((Get-ItemProperty $desktop).'SCRNSAVE.EXE' -eq $saver){throw 'Owned selection left dangling'}
+    if((Get-ItemProperty $desktop).'SCRNSAVE.EXE' -eq ('"' + $saver + '"')){throw 'Owned selection left dangling'}
     Write-Host 'PASS: current-user install/repair/uninstall, no automatic selection or policy changes, alternative and unowned file preserved.'
 } finally {
     foreach($key in $keys) {

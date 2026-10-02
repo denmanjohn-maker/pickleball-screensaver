@@ -210,4 +210,20 @@ public sealed class WidgetTests
         provider.Start(token.Token); await Task.Delay(20); Assert.Equal(initial, handler.Calls); Assert.Contains("Unavailable", provider.State.Status);
         token.Cancel(); await provider.Completion.WaitAsync(TimeSpan.FromSeconds(2));
     }
+    [Fact]
+    public async Task EmptyDailyForecastRemainsRetryableInsteadOfFaulting()
+    {
+        const string payload = """{"current":{"temperature_2m":72,"apparent_temperature":71,"weather_code":0,"wind_speed_10m":8},"daily":{"temperature_2m_max":[]}}""";
+        using var json = JsonDocument.Parse(payload);
+        Assert.Throws<JsonException>(() => WeatherSnapshot.Parse(json.RootElement, true));
+        var handler = new Handler(_ => new(HttpStatusCode.OK) { Content = new StringContent(payload) });
+        using var provider = new WeatherProvider(new() { WeatherEnabled = true, LocationName = "Test", Latitude = 40 },
+            new HttpClient(handler), new WallClock());
+        using var lifetime = new CancellationTokenSource();
+        provider.Start(lifetime.Token);
+        for (var i = 0; i < 100 && provider.State.Status == "Loading"; i++) await Task.Delay(10);
+        Assert.Contains("Unavailable", provider.State.Status);
+        Assert.False(provider.Completion.IsCompleted);
+        lifetime.Cancel(); await provider.Completion.WaitAsync(TimeSpan.FromSeconds(2));
+    }
 }

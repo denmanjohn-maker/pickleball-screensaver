@@ -64,16 +64,29 @@ public sealed record WeatherSnapshot(double Temperature, double Apparent, int Co
     {
         var current = root.GetProperty("current"); var daily = root.GetProperty("daily");
         double Number(JsonElement e, string name) { var n = e.GetProperty(name).GetDouble(); if (!double.IsFinite(n)) throw new JsonException("Nonfinite weather"); return n; }
-        double DailyNumber(string name, int day) => daily.GetProperty(name)[day].GetDouble();
-        double? Next(string name) => daily.GetProperty(name).GetArrayLength() > 1 ? DailyNumber(name, 1) : null;
-        int? Precip(int index) => daily.TryGetProperty("precipitation_probability_max", out var a)
-            && a.GetArrayLength() > index && a[index].ValueKind == JsonValueKind.Number ? a[index].GetInt32() : null;
+        double DailyNumber(string name, int day)
+        {
+            var a = daily.GetProperty(name);
+            if (a.ValueKind != JsonValueKind.Array || a.GetArrayLength() <= day || a[day].ValueKind != JsonValueKind.Number)
+                throw new JsonException("Daily forecast unavailable");
+            var value = a[day].GetDouble();
+            return double.IsFinite(value) ? value : throw new JsonException("Invalid daily forecast");
+        }
+        double? Next(string name) => daily.GetProperty(name).GetArrayLength() > 1
+            && daily.GetProperty(name)[1].ValueKind != JsonValueKind.Null ? DailyNumber(name, 1) : null;
+        int? Precip(int index)
+        {
+            if (!daily.TryGetProperty("precipitation_probability_max", out var a) || a.GetArrayLength() <= index
+                || a[index].ValueKind == JsonValueKind.Null) return null;
+            if (!a[index].TryGetInt32(out var chance) || chance is < 0 or > 100) throw new JsonException("Invalid precipitation");
+            return chance;
+        }
         string Sun(string name) => daily.GetProperty(name).GetArrayLength() == 0 ? "—"
             : DateTime.TryParse(daily.GetProperty(name)[0].GetString(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var time)
                 ? time.ToString("h:mm tt", CultureInfo.InvariantCulture) : "—";
         var result = new WeatherSnapshot(Number(current, "temperature_2m"), Number(current, "apparent_temperature"),
             current.GetProperty("weather_code").GetInt32(), Number(current, "wind_speed_10m"),
-            DailyNumber("temperature_2m_max", 0), DailyNumber("temperature_2m_min", 0), Precip(0) ?? 0,
+            DailyNumber("temperature_2m_max", 0), DailyNumber("temperature_2m_min", 0), Precip(0) ?? throw new JsonException("Daily precipitation unavailable"),
             DailyNumber("wind_speed_10m_max", 0), Sun("sunrise"), Sun("sunset"),
             Next("temperature_2m_max"), Next("temperature_2m_min"), Precip(1), fahrenheit);
         if (!double.IsFinite(result.High) || !double.IsFinite(result.Low) || !double.IsFinite(result.WindMax)

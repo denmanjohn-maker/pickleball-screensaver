@@ -17,7 +17,7 @@ switch ($Action) {
         if (-not (Test-Path -LiteralPath $owned)) { throw 'Installed screensaver unavailable' }
         Add-Type -AssemblyName PresentationFramework
         $answer = [Windows.MessageBox]::Show('Select Pickleball as your screensaver? Idle timeout, activation, sleep and password policies will not be changed.', 'Pickleball — explicit selection', 'YesNo')
-        if ($answer -eq 'Yes') { Set-ItemProperty $desktop 'SCRNSAVE.EXE' $owned }
+        if ($answer -eq 'Yes') { Set-ItemProperty $desktop 'SCRNSAVE.EXE' ('"' + $owned + '"') }
     }
     'Configure' { Start-Process -FilePath $owned -ArgumentList '/c' }
     'Classic' { Start-Process -FilePath (Join-Path $PSScriptRoot 'Pickleball-Classic.deskthemepack') }

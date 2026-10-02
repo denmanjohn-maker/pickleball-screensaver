@@ -13,6 +13,8 @@ internal static class Program
         try
         {
             var options = HostOptions.Parse(args, IntPtr.Size * 8);
+            if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+                throw new PlatformNotSupportedException("Windows 11 (build 22000 or later) is required.");
             if (System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
                 != System.Runtime.InteropServices.RuntimeInformation.OSArchitecture)
                 throw new PlatformNotSupportedException("Use the native ARM64 or x64 package, not emulation.");

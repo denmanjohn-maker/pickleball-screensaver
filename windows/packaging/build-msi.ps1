@@ -20,10 +20,18 @@ foreach ($theme in @('Pickleball-Classic.deskthemepack','Pickleball-BlackLight.d
 $msi = Join-Path $outputPath "PickleballScreensaver-$Version-$Rid.msi"
 if (Test-Path -LiteralPath $msi) { throw 'MSI already exists; use a fresh output directory' }
 function Call($object,[string]$method,[object[]]$arguments) {
-    $object.GetType().InvokeMember($method,[Reflection.BindingFlags]::InvokeMethod,$null,$object,$arguments)
+    $target = $object.PSObject.BaseObject
+    $raw = [object[]]::new($arguments.Count)
+    for($i=0;$i -lt $arguments.Count;$i++){if($null -ne $arguments[$i]){$raw[$i]=$arguments[$i].PSObject.BaseObject}}
+    try { $target.GetType().InvokeMember($method,[Reflection.BindingFlags]::InvokeMethod,$null,$target,$raw) }
+    catch { throw "Windows Installer method $method failed: $($_.Exception.Message) at $($_.ScriptStackTrace)" }
 }
 function Set-Com($object,[string]$property,[object[]]$arguments) {
-    $object.GetType().InvokeMember($property,[Reflection.BindingFlags]::SetProperty,$null,$object,$arguments) | Out-Null
+    $target = $object.PSObject.BaseObject
+    $raw = [object[]]::new($arguments.Count)
+    for($i=0;$i -lt $arguments.Count;$i++){if($null -ne $arguments[$i]){$raw[$i]=$arguments[$i].PSObject.BaseObject}}
+    try { $target.GetType().InvokeMember($property,[Reflection.BindingFlags]::SetProperty,$null,$target,$raw) | Out-Null }
+    catch { throw "Windows Installer property $property failed: $($_.Exception.Message) at $($_.ScriptStackTrace)" }
 }
 $installer = New-Object -ComObject WindowsInstaller.Installer
 $db = Call $installer 'OpenDatabase' @($msi,3)
@@ -38,8 +46,8 @@ function Row([string]$table,[string[]]$columns,[object[]]$values) {
     $record = Call $installer 'CreateRecord' @($values.Count)
     for ($i=0;$i -lt $values.Count;$i++) {
         if ($null -eq $values[$i]) { continue }
-        if ($values[$i] -is [int]) { Set-Com $record 'IntegerData' @($i+1,$values[$i]) }
-        else { Set-Com $record 'StringData' @($i+1,[string]$values[$i]) }
+        if ($values[$i] -is [int]) { Set-Com $record 'IntegerData' @(([int]($i+1)),$values[$i]) }
+        else { Set-Com $record 'StringData' @(([int]($i+1)),[string]$values[$i]) }
     }
     try { Call $view 'Execute' @($record) | Out-Null } finally { Call $view 'Close' @() | Out-Null }
 }
@@ -76,7 +84,7 @@ foreach ($entry in @{
     ProductCode=$productCode; UpgradeCode=$upgradeCode; ProductVersion=$Version; ProductLanguage='1033';
     ProductName='Pickleball screensaver'; Manufacturer='denmanjohn-maker'; MSIINSTALLPERUSER='1';
     ARPNOMODIFY='1'; ARPHELPLINK='https://github.com/denmanjohn-maker/pickleball-screensaver';
-    SecureCustomProperties='OLDPRODUCTS;NEWERPRODUCTS;NATIVEARCH'; REINSTALLMODE='amus'
+    SecureCustomProperties='OLDPRODUCTS;NEWERPRODUCTS;NATIVEARCH;WINDOWSBUILD'; REINSTALLMODE='amus'
 }.GetEnumerator()) { Row Property @('Property','Value') @($entry.Key,$entry.Value) }
 Row Directory @('Directory','Directory_Parent','DefaultDir') @('TARGETDIR',$null,'SourceDir')
 Row Directory @('Directory','Directory_Parent','DefaultDir') @('LocalAppDataFolder','TARGETDIR','.')
@@ -88,9 +96,12 @@ Row Directory @('Directory','Directory_Parent','DefaultDir') @('System64Folder',
 Row Feature @('Feature','Title','Level','Directory_','Attributes') @('Main','Pickleball screensaver',1,'INSTALLFOLDER',0)
 Row RegLocator @('Signature_','Root','Key','Name','Type') @('NativeArch',2,'SYSTEM\CurrentControlSet\Control\Session Manager\Environment','PROCESSOR_ARCHITECTURE',18)
 Row AppSearch @('Property','Signature_') @('NATIVEARCH','NativeArch')
+Row RegLocator @('Signature_','Root','Key','Name','Type') @('WindowsBuild',2,'SOFTWARE\Microsoft\Windows NT\CurrentVersion','CurrentBuildNumber',18)
+Row AppSearch @('Property','Signature_') @('WINDOWSBUILD','WindowsBuild')
 $architecture = if($Rid -eq 'win-arm64'){'ARM64'}else{'AMD64'}
 Row LaunchCondition @('Condition','Description') @("NATIVEARCH = `"$architecture`"",'Choose the package matching the native OS architecture (no emulation).')
 Row LaunchCondition @('Condition','Description') @('NOT ALLUSERS','This installer is current-user only. Do not request ALLUSERS.')
+Row LaunchCondition @('Condition','Description') @('WINDOWSBUILD >= 22000','Windows 11 (build 22000 or later) is required.')
 Row LaunchCondition @('Condition','Description') @('NOT NEWERPRODUCTS','A newer version is already installed.')
 Row Upgrade @('UpgradeCode','VersionMax','Attributes','ActionProperty') @($upgradeCode,$Version,1,'OLDPRODUCTS')
 Row Upgrade @('UpgradeCode','VersionMin','Attributes','ActionProperty') @($upgradeCode,$Version,258,'NEWERPRODUCTS')

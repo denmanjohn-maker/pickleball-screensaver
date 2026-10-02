@@ -70,6 +70,11 @@ internal static class Program
             var settingsPath = Path.Combine(directory, "settings.json");
             var store = new SettingsStore(settingsPath);
             var cancel = new ConfigureWindow(store);
+            var fields = ((System.Windows.Controls.StackPanel)((System.Windows.Controls.ScrollViewer)cancel.Content).Content)
+                .Children.OfType<System.Windows.Controls.Control>()
+                .Where(control => control is System.Windows.Controls.ComboBox or System.Windows.Controls.TextBox);
+            Check(fields.Count() == 6 && fields.All(field => System.Windows.Automation.AutomationProperties.GetLabeledBy(field) is not null),
+                "Every settings choice and city input must expose an accessible label.");
             cancel.Close();
             Check(!File.Exists(settingsPath), "Cancel must not create preferences.");
             var save = new ConfigureWindow(store);
