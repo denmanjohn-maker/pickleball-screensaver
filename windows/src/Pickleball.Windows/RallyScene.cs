@@ -383,9 +383,10 @@ public sealed class RallyScene : FrameworkElement, IDisposable
         dc.DrawEllipse(Palette.Brush(palette.Accent), null, new(m.NearServing ? pill.X - u * .012 : pill.Right + u * .012, pill.Y + scoreSize), u * .005, u * .005);
         if (m.NearGames + m.FarGames > 0) Text(dc, $"GAMES {m.NearGames} – {m.FarGames}", pill.X, scoreY - u * .03, u * .017, palette.Text, pill.Width);
         if (m.GameBannerTimer > 0) Text(dc, "GAME", pill.X, scoreY - u * .09, u * .055, palette.Accent, pill.Width, true);
-        var time = Formatted(Frame.WallTime.ToString("h:mm tt", CultureInfo.InvariantCulture), u * .060, palette.Text, true);
+        var clockColor = preset == "sun-faded-rec-league" ? palette.Line : palette.Text;
+        var time = Formatted(Frame.WallTime.ToString("h:mm tt", CultureInfo.InvariantCulture), u * .060, clockColor, true);
         dc.DrawText(time, new(ActualWidth - u * .05 - time.Width, ActualHeight - u * .05 - u * .09));
-        var date = Formatted(Frame.WallTime.ToString("dddd, MMMM d", CultureInfo.InvariantCulture), u * .023, palette.Text, false);
+        var date = Formatted(Frame.WallTime.ToString("dddd, MMMM d", CultureInfo.InvariantCulture), u * .023, clockColor, false);
         dc.DrawText(date, new(ActualWidth - u * .05 - date.Width, ActualHeight - u * .05 - u * .027));
     }
     private double Card(DrawingContext dc, string title, IEnumerable<string> rows, double x, double top, double width, double size, double maxHeight = double.PositiveInfinity)

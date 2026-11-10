@@ -1,7 +1,7 @@
 # Pickleball for Windows 11
 
-Independent C#/.NET **10 LTS** WPF implementation, product **1.6**
-(`Version=1.6.0`), aligned with the subsequently merged macOS version bump.
+Independent C#/.NET **10 LTS** WPF implementation, product **1.7**
+(`Version=1.7.0`), aligned with the macOS product version.
 Native **win-arm64** and **win-x64** packages are self-contained; recipients
 do not install .NET. Running the x64 package under ARM emulation is rejected.
 
@@ -239,13 +239,15 @@ camera and artwork regressions also pass. See PR/native CI for current
 published `.scr`, screenshot, CAB and MSI results. Native run
 [36999440483](https://github.com/denmanjohn-maker/pickleball-screensaver/actions/runs/36999440483)
 passed all 81 core tests, renamed `.scr` child-preview lifecycle/architecture,
-accessible configuration labels, all seven appearance/two-format image fixtures,
+accessible configuration labels, all five appearance/two-format image fixtures,
 all motion/portrait/4K/ultrawide fixtures, deterministic PNG replay and true CAB
 inventory checks on both native architectures. MSI authoring and current-user
 install/repair/synthetic upgrade/uninstall all passed, including owned quoted
 selection removal, alternative selection/unowned-file preservation and no
 automatic selection or policy changes. Downloaded native screenshots were
-visually inspected for all seven appearances and synthetic provider cards.
+visually inspected for all five appearances and synthetic provider cards.
+The two retro appearances added in 1.7 extend the native image-fixture matrix;
+the historical run above predates them.
 These results do not substitute for the desktop/signing gates below.
 
 `windows-2025` is an **x64 Windows Server** runner, not Windows 11 desktop

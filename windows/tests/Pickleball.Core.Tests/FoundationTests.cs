@@ -166,6 +166,8 @@ public sealed class SettingsTests : IDisposable
     [InlineData("living-court")]
     [InlineData("ink-and-paper")]
     [InlineData("rally-painting")]
+    [InlineData("sun-faded-rec-league")]
+    [InlineData("saturday-broadcast")]
     public void SaveRoundTripsAndLeavesNoStagingFile(string theme)
     {
         store.Save(new() { Theme = theme });

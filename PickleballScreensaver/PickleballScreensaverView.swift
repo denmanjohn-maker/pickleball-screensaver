@@ -1166,11 +1166,13 @@ class PickleballScreensaverView: ScreenSaverView {
         let tSize = unit * 0.060
         let dSize = unit * 0.023
         let margin = unit * 0.05
+        let clockColor = appearancePreset == .sunFadedRecLeague
+            ? NSColor(cgColor: theme.courtLine)! : theme.textPrimary
 
         let timeAS = NSAttributedString(string: timeFmt.string(from: now),
-                                        attributes: textAttrs(tSize, .bold, alpha: 0.95, monoDigits: true))
+                                        attributes: textAttrs(tSize, .bold, alpha: 0.95, color: clockColor, monoDigits: true))
         let dateAS = NSAttributedString(string: dayFmt.string(from: now),
-                                        attributes: textAttrs(dSize, .semibold, alpha: 0.60))
+                                        attributes: textAttrs(dSize, .semibold, alpha: 0.60, color: clockColor))
         let timeSz = timeAS.size(), dateSz = dateAS.size()
 
         ctx.saveGState()
