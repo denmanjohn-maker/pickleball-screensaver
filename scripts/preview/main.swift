@@ -15,7 +15,7 @@
 //   --stats        print per-shot log lines and end-of-run aggregates
 //   --sim-only     run the simulation without rendering (fast; for distributions)
 //   --singles / --doubles        force the game format
-//   --appearance=NAME  classic|blacklight|living-court|ink-and-paper|rally-painting
+//   --appearance=NAME  classic|blacklight|living-court|ink-and-paper|rally-painting|sun-faded-rec-league|saturday-broadcast
 //   --blacklight / --classic     legacy appearance overrides
 //   --force-drop / --force-drive every third shot is a drop / drive
 //   --force-speedup / --force-lob / --lefty   force those behaviors

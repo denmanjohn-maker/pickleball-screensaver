@@ -137,7 +137,7 @@ jobs:
           if (@($scr).Count -ne 1) { throw 'Expected exactly one bundled .scr' }
           dotnet run --project tests/Pickleball.Windows.Tests -c Release -- artifacts/native-tests '${{ matrix.architecture }}' "$scr"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: All five appearances, formats, motion and viewport image fixtures
+      - name: All seven appearances, formats, motion and viewport image fixtures
         run: ./packaging/test-render.ps1 -Output "$PWD/artifacts/native-tests"
       - name: Build native current-user MSI without third-party installer tooling
         env:

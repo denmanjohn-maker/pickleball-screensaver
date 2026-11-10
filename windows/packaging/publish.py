@@ -115,7 +115,7 @@ def main():
         (directory / "Pickleball.Windows.exe").rename(directory / "PickleballScreensaver.scr")
         (directory / "README.txt").write_text(
             f"{'SIGNED' if args.sign else 'UNSIGNED DEVELOPMENT'} WINDOWS PICKLEBALL {version} ({args.rid}).\n"
-            "Five appearances; singles/doubles; optional weather, tournaments and daily drills.\n"
+            "Seven appearances; singles/doubles; optional weather, tournaments and daily drills.\n"
             "No registration or system policy changes are performed. No .NET install is needed.\n"
             "No arguments or /c: configure; /p HWND: offline embedded preview; /s: fullscreen.\n"
             "Keep ALL files together. Single-file native dependencies extract to the .NET user cache.\n"

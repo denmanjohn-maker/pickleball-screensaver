@@ -70,12 +70,13 @@ final class WebsiteCheck: NSObject, WKNavigationDelegate {
             do {
                 let result = try await webView.callAsyncJavaScript("""
                     const assert = (value, message) => { if (!value) throw new Error(message); };
-                    const names = ["Classic", "Black Light", "Living Court", "Ink-and-paper", "Rally Painting"];
+                    const names = ["Classic", "Black Light", "Living Court", "Ink-and-paper", "Rally Painting",
+                                   "Sun-Faded Rec League", "Saturday Broadcast"];
                     const buttons = [...document.querySelectorAll(".appearance-button")];
                     const panels = [...document.querySelectorAll(".shot-panel")];
-                    assert(buttons.length === 5 && panels.length === 5, "Five appearances required");
+                    assert(buttons.length === 7 && panels.length === 7, "Seven appearances required");
                     assert(buttons.every((b, i) => b.textContent === names[i]), "Incorrect appearance labels");
-                    assert(new Set(panels.map(p => p.id)).size === 5, "Duplicate panel IDs");
+                    assert(new Set(panels.map(p => p.id)).size === 7, "Duplicate panel IDs");
                     assert(document.documentElement.scrollWidth <= window.innerWidth, "Horizontal overflow");
                     const releasesURL = "https://github.com/denmanjohn-maker/pickleball-screensaver/releases";
                     const windows = document.getElementById("windows-downloads");

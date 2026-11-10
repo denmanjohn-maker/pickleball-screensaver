@@ -35,7 +35,8 @@ for preset in AppearancePreset.allCases {
 }
 defaults.removePersistentDomain(forName: suite)
 check(AppearancePreset.allCases.map(\.title) ==
-      ["Classic", "Black Light", "Living Court", "Ink-and-paper", "Rally Painting"], "Preset catalog differs")
+      ["Classic", "Black Light", "Living Court", "Ink-and-paper", "Rally Painting",
+       "Sun-Faded Rec League", "Saturday Broadcast"], "Preset catalog differs")
 
 let living = ArtEffects()
 let impactFrame = frame(1, events: [.contact(position: origin, facing: 1), .bounce(bounce),

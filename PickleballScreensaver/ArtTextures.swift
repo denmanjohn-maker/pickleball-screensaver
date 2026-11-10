@@ -101,4 +101,17 @@ enum ArtTextures {
             ctx.strokePath()
         }
     }
+
+    static func drawScanlines(_ ctx: CGContext, in rect: CGRect) {
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        ctx.setStrokeColor(CGColor(red: 0.015, green: 0.025, blue: 0.04, alpha: 0.045))
+        ctx.setLineWidth(0.65)
+        ctx.beginPath()
+        for y in stride(from: rect.minY, to: rect.maxY, by: 4) {
+            ctx.move(to: CGPoint(x: rect.minX, y: y))
+            ctx.addLine(to: CGPoint(x: rect.maxX, y: y))
+        }
+        ctx.strokePath()
+    }
 }

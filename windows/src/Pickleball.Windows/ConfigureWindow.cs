@@ -26,7 +26,7 @@ public sealed class ConfigureWindow : Window
         Title = "Pickleball screensaver settings"; Width = 610; Height = 720; MinWidth = 480; MinHeight = 480;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         var panel = new StackPanel { Margin = new Thickness(24) };
-        appearance = Choice(panel, "Appearance", Preferences.Themes, draft.Theme);
+        appearance = AppearanceChoice(panel, draft.Theme);
         motion = Choice(panel, "Court motion (minute-boundary rotation)", ["standard", "slow", "still"], draft.CourtMotion);
         format = Choice(panel, "Match", ["doubles", "singles"], draft.Format);
         drills = Toggle(panel, "Show drill of the day", draft.DrillEnabled);
@@ -80,6 +80,30 @@ public sealed class ConfigureWindow : Window
         AutomationProperties.SetLabeledBy(box, label); panel.Children.Add(label);
         panel.Children.Add(box); return box;
     }
+    private sealed record AppearanceOption(string Value, string Title);
+    private static ComboBox AppearanceChoice(Panel panel, string selected)
+    {
+        var titles = new Dictionary<string, string>
+        {
+            ["classic"] = "Classic",
+            ["blacklight"] = "Black Light",
+            ["living-court"] = "Living Court",
+            ["ink-and-paper"] = "Ink-and-paper",
+            ["rally-painting"] = "Rally Painting",
+            ["sun-faded-rec-league"] = "Sun-Faded Rec League",
+            ["saturday-broadcast"] = "Saturday Broadcast"
+        };
+        var box = new ComboBox
+        {
+            ItemsSource = Preferences.Themes.Select(value => new AppearanceOption(value, titles[value])).ToArray(),
+            DisplayMemberPath = nameof(AppearanceOption.Title),
+            SelectedValuePath = nameof(AppearanceOption.Value),
+            SelectedValue = selected
+        };
+        var label = new Label { Content = "Appearance", Target = box, Padding = new Thickness(0), Margin = new Thickness(0, 8, 0, 4) };
+        AutomationProperties.SetLabeledBy(box, label); panel.Children.Add(label);
+        panel.Children.Add(box); return box;
+    }
     private static CheckBox Toggle(Panel panel, string title, bool selected)
     {
         var box = new CheckBox { Content = title, IsChecked = selected, Margin = new Thickness(0, 10, 0, 0) }; panel.Children.Add(box); return box;
@@ -107,7 +131,7 @@ public sealed class ConfigureWindow : Window
     }
     private void ResetDraft()
     {
-        draft = new(); appearance.SelectedItem = draft.Theme; motion.SelectedItem = draft.CourtMotion; format.SelectedItem = draft.Format;
+        draft = new(); appearance.SelectedValue = draft.Theme; motion.SelectedItem = draft.CourtMotion; format.SelectedItem = draft.Format;
         drills.IsChecked = draft.DrillEnabled; level.SelectedItem = draft.DrillLevel; weather.IsChecked = false; tournaments.IsChecked = false;
         fahrenheit.IsChecked = true; months.SelectedItem = "3"; city.Text = ""; locationStatus.Text = "No city selected";
     }
@@ -117,7 +141,7 @@ public sealed class ConfigureWindow : Window
         {
             var value = draft with
             {
-                Theme = (string)appearance.SelectedItem,
+                Theme = (string)appearance.SelectedValue,
                 CourtMotion = (string)motion.SelectedItem,
                 Format = (string)format.SelectedItem,
                 DrillEnabled = drills.IsChecked == true,

@@ -47,8 +47,9 @@ Checksums verify download integrity, not publisher identity.
   shadow/trail, scoreboard/serve call/game tally/banner, clock and widget rail.
   Fit covers the full rotation envelope, not an old static rectangle.
 * Mutually exclusive **classic**, **blacklight**, **living-court**,
-  **ink-and-paper**, **rally-painting**; team A is positive-facing cyan,
-  team B negative-facing coral/pink (deeper ink shades on paper).
+  **ink-and-paper**, **rally-painting**, **sun-faded-rec-league**, and
+  **saturday-broadcast**; team A is positive-facing cyan, team B negative-facing
+  coral/pink (deeper ink shades on paper).
   Selecting the same appearance is a strict no-op. Real appearance/format
   changes, reset and reseed clear art/ghosts/projection and brush caches.
 * Living Court: ordered bounce ripples (24/1.2s), contact halos (16/.35s,
@@ -238,13 +239,13 @@ camera and artwork regressions also pass. See PR/native CI for current
 published `.scr`, screenshot, CAB and MSI results. Native run
 [36999440483](https://github.com/denmanjohn-maker/pickleball-screensaver/actions/runs/36999440483)
 passed all 81 core tests, renamed `.scr` child-preview lifecycle/architecture,
-accessible configuration labels, all five appearance/two-format image fixtures,
+accessible configuration labels, all seven appearance/two-format image fixtures,
 all motion/portrait/4K/ultrawide fixtures, deterministic PNG replay and true CAB
 inventory checks on both native architectures. MSI authoring and current-user
 install/repair/synthetic upgrade/uninstall all passed, including owned quoted
 selection removal, alternative selection/unowned-file preservation and no
 automatic selection or policy changes. Downloaded native screenshots were
-visually inspected for all five appearances and synthetic provider cards.
+visually inspected for all seven appearances and synthetic provider cards.
 These results do not substitute for the desktop/signing gates below.
 
 `windows-2025` is an **x64 Windows Server** runner, not Windows 11 desktop

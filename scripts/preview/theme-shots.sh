@@ -1,7 +1,7 @@
 #!/bin/bash
-# Regenerate the download page's five appearance screenshots (macOS only).
+# Regenerate the download page's seven appearance screenshots (macOS only).
 #
-# The first four appearances share a seed, frame, clock, and format. Painting
+# The first six appearances share a seed, frame, clock, and format. Painting
 # uses a later frame so its accumulated strokes are visible. No-spin framing
 # makes the court larger while keeping every shot at the same camera angle.
 #
@@ -9,7 +9,7 @@
 #
 #   ./scripts/preview/theme-shots.sh [--seed N] [--frame N] [--painting-frame N] [--singles]
 #
-# Run from the repo root. Writes five 1280x720 JPEGs in docs/.
+# Run from the repo root. Writes seven 1280x720 JPEGs in docs/.
 set -euo pipefail
 
 SEED=42
@@ -61,9 +61,11 @@ shoot classic         docs/screenshot-classic.jpg "$FRAME"
 shoot blacklight      docs/screenshot.jpg "$FRAME"
 shoot living-court    docs/screenshot-living-court.jpg "$FRAME"
 shoot ink-and-paper   docs/screenshot-ink-and-paper.jpg "$FRAME"
+shoot sun-faded-rec-league docs/screenshot-sun-faded-rec-league.jpg "$FRAME"
+shoot saturday-broadcast  docs/screenshot-saturday-broadcast.jpg "$FRAME"
 shoot rally-painting  docs/screenshot-rally-painting.jpg "$PAINTING_FRAME"
 
 echo
-echo "done — four matched rally views and an accumulated painting, all from seed $SEED."
+echo "done — six matched rally views and an accumulated painting, all from seed $SEED."
 echo "preview with:  open docs/index.html"
 echo "not the moment you want? re-run with a different --frame (or --seed)."

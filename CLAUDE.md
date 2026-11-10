@@ -57,11 +57,11 @@ is checked against the actual integer display-step count, including fractional
 durations. Simulation tunables
 are forwarded from the view to `RallyEngine`.
 
-`scripts/preview/theme-shots.sh` regenerates the download page's five appearance
-screenshots. Classic, Black Light, Living Court, and Ink-and-paper use the same
-seed and frame; Rally Painting uses a later frame to show accumulated artwork.
-All use no-spin framing. Defaults are seed 42, frame 210 (about 7 seconds),
-and painting frame 3000 (about 100 seconds). Override with `--seed N`,
+`scripts/preview/theme-shots.sh` regenerates the download page's seven appearance
+screenshots. All but Rally Painting use the same seed and frame; Rally Painting
+uses a later frame to show accumulated artwork. All use no-spin framing.
+Defaults are seed 42, frame 210 (about 7 seconds), and painting frame 3000
+(about 100 seconds). Override with `--seed N`,
 `--frame N`, `--painting-frame N`, or `--singles` / `--doubles`.
 macOS only (needs `swiftc` and `sips`).
 
@@ -86,7 +86,7 @@ live floor bounces without parsing logs.
 **Rendering** — all drawing is done with CoreGraphics in `drawRect`. The view
 renders a perspective-projected pickleball court with animated paddles, a
 scoreboard, and a left-rail widget stack. `AppearancePreset.swift` defines the
-five mutually exclusive looks and their `Theme` palettes. The Appearance and
+seven mutually exclusive looks and their `Theme` palettes. The Appearance and
 game format are chosen in Options (`ThemeSettings` / `MatchSettings`, existing
 keys `Theme` / `GameFormat`).
 

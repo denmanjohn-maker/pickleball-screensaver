@@ -56,7 +56,7 @@ public sealed class RallyScene : FrameworkElement, IDisposable
         DrawBackground(dc);
         if (!WallpaperOnly) DrawGhosts(dc);
         DrawCourt(dc);
-        if (WallpaperOnly) { DrawNet(dc); return; }
+        if (WallpaperOnly) { DrawNet(dc); DrawScanlines(dc); return; }
         DrawShadow(dc);
         DrawFlight(dc, true);
         DrawSprites(dc, true);
@@ -64,6 +64,7 @@ public sealed class RallyScene : FrameworkElement, IDisposable
         DrawFlight(dc, false);
         DrawSprites(dc, false);
         DrawWidgets(dc);
+        DrawScanlines(dc);
     }
     private Point P(Vec3 p) { var q = projection!.Project(p); return new(q.X, q.Y); }
     private static Geometry Path(IEnumerable<Point> points, bool closed = false)
@@ -95,7 +96,13 @@ public sealed class RallyScene : FrameworkElement, IDisposable
         }
         else
         {
-            var glow = new RadialGradientBrush(preset == "blacklight" ? Palette.Rgb(.10, .02, .18, .4) : Palette.Rgb(.09, .14, .18, .28), Colors.Transparent)
+            var glowColor = preset switch
+            {
+                "blacklight" => Palette.Rgb(.10, .02, .18, .4),
+                "sun-faded-rec-league" => Palette.Rgb(.43, .27, .14, .34),
+                _ => Palette.Rgb(.09, .14, .18, .28)
+            };
+            var glow = new RadialGradientBrush(glowColor, Colors.Transparent)
             { Center = new(.5, .4), GradientOrigin = new(.5, .4), RadiusX = .7, RadiusY = .7 };
             glow.Freeze(); dc.DrawRectangle(glow, null, new Rect(RenderSize));
         }
@@ -120,7 +127,13 @@ public sealed class RallyScene : FrameworkElement, IDisposable
         dc.DrawGeometry(Palette.Brush(Colors.Black, .22), null, apron);
         var court = Quad(-1, 0, 1, 1);
         dc.PushTransform(new TranslateTransform(projection!.Unit * .008, projection.Unit * .018));
-        dc.DrawGeometry(Palette.Brush(Colors.Black, preset == "ink-and-paper" ? .18 : .55), new Pen(Palette.Brush(Colors.Black, .08), projection.Unit * .025), court);
+        var shadowAlpha = preset switch
+        {
+            "ink-and-paper" => .18,
+            "sun-faded-rec-league" => .30,
+            _ => .55
+        };
+        dc.DrawGeometry(Palette.Brush(Colors.Black, shadowAlpha), new Pen(Palette.Brush(Colors.Black, .08), projection.Unit * .025), court);
         dc.Pop(); dc.DrawGeometry(Palette.Brush(palette.Surface), null, court);
         dc.DrawGeometry(Palette.Brush(palette.Service), null, Quad(-1, 0, 1, Court.KitchenNearZ));
         dc.DrawGeometry(Palette.Brush(palette.Service), null, Quad(-1, Court.KitchenFarZ, 1, 1));
@@ -146,9 +159,16 @@ public sealed class RallyScene : FrameworkElement, IDisposable
         }
         else
         {
-            var grain = palette.Glow ? palette.Line : Colors.Black;
-            for (var z = -.02; z <= 1.1; z += .028) Line(dc, new(-1.3, 0, z), new(1.3, 0, z), grain, .7, palette.Glow ? .1 : .18);
-            for (var x = -1.15; x <= 1.15; x += .07) Line(dc, new(x, 0, -.05), new(x, 0, 1.05), grain, .5, palette.Glow ? .05 : .08);
+            var grain = preset switch
+            {
+                "sun-faded-rec-league" => Palette.Rgb(.18, .15, .08),
+                "saturday-broadcast" => palette.Line,
+                _ => palette.Glow ? palette.Line : Colors.Black
+            };
+            var rowAlpha = preset == "saturday-broadcast" ? .07 : palette.Glow ? .1 : .18;
+            var columnAlpha = preset == "saturday-broadcast" ? .035 : palette.Glow ? .05 : .08;
+            for (var z = -.02; z <= 1.1; z += .028) Line(dc, new(-1.3, 0, z), new(1.3, 0, z), grain, .7, rowAlpha);
+            for (var x = -1.15; x <= 1.15; x += .07) Line(dc, new(x, 0, -.05), new(x, 0, 1.05), grain, .5, columnAlpha);
             DrawFloorArt(dc);
         }
         dc.Pop();
@@ -161,6 +181,14 @@ public sealed class RallyScene : FrameworkElement, IDisposable
             if (palette.Glow) dc.DrawGeometry(null, new Pen(Palette.Brush(palette.Line, .12), 9), line);
             dc.DrawGeometry(null, new Pen(Palette.Brush(palette.Line), 2.5), line);
         }
+    }
+    private void DrawScanlines(DrawingContext dc)
+    {
+        if (preset != "saturday-broadcast") return;
+        var pen = new Pen(Palette.Brush(Palette.Rgb(.015, .025, .04, .045)), .65);
+        pen.Freeze();
+        for (var y = 0d; y < ActualHeight; y += 4)
+            dc.DrawLine(pen, new(0, y), new(ActualWidth, y));
     }
     private void DrawFloorArt(DrawingContext dc)
     {

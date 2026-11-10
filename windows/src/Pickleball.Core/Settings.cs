@@ -9,7 +9,8 @@ public sealed record Preferences
 {
     public const int CurrentVersion = 1;
     public static IReadOnlyList<string> Themes { get; } = Array.AsReadOnly(
-        new[] { "classic", "blacklight", "living-court", "ink-and-paper", "rally-painting" });
+        new[] { "classic", "blacklight", "living-court", "ink-and-paper", "rally-painting",
+            "sun-faded-rec-league", "saturday-broadcast" });
     public int SchemaVersion { get; init; } = CurrentVersion;
     public string Theme { get; init; } = "classic";
     public string CourtMotion { get; init; } = "slow";

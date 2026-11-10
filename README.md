@@ -24,7 +24,7 @@ The left rail of widget-style cards shows current weather with a "good day to pl
 
 ## Court and game options
 
-Choose one of five **Appearance** presets, and **Singles** or **Doubles**, in
+Choose one of seven **Appearance** presets, and **Singles** or **Doubles**, in
 **Options…**. Existing Classic and Black Light selections are preserved.
 
 | Appearance | Look |
@@ -34,6 +34,8 @@ Choose one of five **Appearance** presets, and **Singles** or **Doubles**, in
 | Living Court | Classic colors with gentle ripples at live ball bounces and brief halos at paddle contact. |
 | Ink-and-paper | Warm textured paper, watercolor court washes, charcoal lines, and an ink-like ball trail. |
 | Rally Painting | Team-colored brushstrokes build up on a dark court across rallies, then gently dissolve when a game ends. Older strokes fade out during long games to keep the artwork bounded. |
+| Sun-Faded Rec League | A nostalgic community court in weathered olive, faded teal, and warm cream, with subtle sun-worn grain. |
+| Saturday Broadcast | Saturated teal and navy, golden court lines, broadcast-style accents, and a faint CRT scanline finish. |
 
 These are mutually exclusive presets, not stacked effects. All use the same
 game mechanics and physics. Team A uses cyan paddles; Team B uses coral, or pink

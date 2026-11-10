@@ -528,6 +528,9 @@ class PickleballScreensaverView: ScreenSaverView {
         drawDrill(ctx: ctx, rect: rect, rail: rail, bottom: rect.height * 0.05)
         drawScoreboard(ctx: ctx, rect: rect)
         drawCourtClock(ctx: ctx, rect: rect)
+        if appearancePreset == .saturdayBroadcast {
+            ArtTextures.drawScanlines(ctx, in: rect)
+        }
     }
 
     // MARK: - Background
@@ -665,9 +668,11 @@ class PickleballScreensaverView: ScreenSaverView {
     private func drawCourt(ctx: CGContext) {
         // Court surface floats on the wallpaper; a soft drop shadow lifts it
         ctx.saveGState()
+        let shadowAlpha: CGFloat = appearancePreset == .inkPaper ? 0.18
+            : appearancePreset == .sunFadedRecLeague ? 0.30 : 0.85
         ctx.setShadow(offset: CGSize(width: bounds.height * 0.008, height: -bounds.height * 0.022),
                       blur: bounds.height * 0.05,
-                      color: CGColor(red: 0, green: 0, blue: 0, alpha: appearancePreset == .inkPaper ? 0.18 : 0.85))
+                      color: CGColor(red: 0, green: 0, blue: 0, alpha: shadowAlpha))
         fillQuad(ctx,
                  proj(-1, 0, 0), proj(1, 0, 0),
                  proj(1, 1, 0),  proj(-1, 1, 0),

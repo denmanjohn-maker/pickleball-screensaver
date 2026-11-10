@@ -67,6 +67,8 @@ public sealed class ArtTests
     [InlineData("living-court")]
     [InlineData("ink-and-paper")]
     [InlineData("rally-painting")]
+    [InlineData("sun-faded-rec-league")]
+    [InlineData("saturday-broadcast")]
     public void AllAppearancesHaveIdenticalGames(string preset)
     {
         var clock = new ReplayClock(new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));

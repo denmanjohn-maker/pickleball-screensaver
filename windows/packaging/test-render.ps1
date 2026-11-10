@@ -3,7 +3,7 @@ $ErrorActionPreference='Stop'
 New-Item -ItemType Directory -Force $Output | Out-Null
 $arguments=@('--project',(Join-Path $PSScriptRoot '../tools/Pickleball.Preview'),'-c','Release','--')
 $hashes=@{}
-foreach($preset in @('classic','blacklight','living-court','ink-and-paper','rally-painting')) {
+foreach($preset in @('classic','blacklight','living-court','ink-and-paper','rally-painting','sun-faded-rec-league','saturday-broadcast')) {
     foreach($format in @('singles','doubles')) {
         $path=Join-Path $Output "$preset-$format.png"
         $frame=if($format -eq 'singles'){800}else{910}
@@ -14,7 +14,7 @@ foreach($preset in @('classic','blacklight','living-court','ink-and-paper','rall
     }
 }
 foreach($format in @('singles','doubles')){
-    if(@($hashes.GetEnumerator() | Where-Object {$_.Key.EndsWith("-$format")} | ForEach-Object {$_.Value} | Sort-Object -Unique).Count -ne 5){
+    if(@($hashes.GetEnumerator() | Where-Object {$_.Key.EndsWith("-$format")} | ForEach-Object {$_.Value} | Sort-Object -Unique).Count -ne 7){
         throw 'Appearances must render distinct geometry/effects'
     }
 }
@@ -33,4 +33,4 @@ foreach($mode in @('widgets','widgets-metric')){
     if($LASTEXITCODE -ne 0){throw 'Offline widget fixture export failed'}
 }
 if((Get-FileHash (Join-Path $Output 'replay-a.png')).Hash -ne (Get-FileHash (Join-Path $Output 'replay-b.png')).Hash){throw 'Seeded PNG replay differs'}
-Write-Host 'PASS: five distinct appearances, both formats, mixed viewport shapes, all motion modes, exact offline replay.'
+Write-Host 'PASS: seven distinct appearances, both formats, mixed viewport shapes, all motion modes, exact offline replay.'

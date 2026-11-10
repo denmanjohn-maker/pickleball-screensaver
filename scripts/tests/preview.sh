@@ -42,14 +42,14 @@ for profile in buddhist japanese; do
     exit 1
   fi
 done
-for appearance in classic blacklight living-court ink-and-paper rally-painting; do
+for appearance in classic blacklight living-court ink-and-paper rally-painting sun-faded-rec-league saturday-broadcast; do
   "$preview" "$work/$appearance" 8 55 --seed=42 --appearance="$appearance" \
     --motion=standard --size=320x180 --sample-every=60 --frame=7
   "$preview" "$work/$appearance-repeat" 8 55 --seed=42 --appearance="$appearance" \
     --motion=standard --size=320x180 --sample-every=60 --frame=7
   cmp "$work/$appearance/frame_00007.png" "$work/$appearance-repeat/frame_00007.png"
 done
-for appearance in blacklight living-court ink-and-paper rally-painting; do
+for appearance in blacklight living-court ink-and-paper rally-painting sun-faded-rec-league saturday-broadcast; do
   if cmp -s "$work/classic/frame_00007.png" "$work/$appearance/frame_00007.png"; then
     echo "FAIL: $appearance has no visible appearance change" >&2
     exit 1

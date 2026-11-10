@@ -64,6 +64,46 @@ public sealed record Palette(Color Surface, Color Service, Color Line, Color Mes
                 Background = Rgb(.025, .035, .05),
                 Wallpaper = false
             },
+            "sun-faded-rec-league" => classic with
+            {
+                Surface = Rgb(.55, .53, .32),
+                Service = Rgb(.34, .50, .52),
+                Line = Rgb(.96, .88, .69, .94),
+                Mesh = Rgb(.15, .15, .12, .34),
+                Strand = Rgb(.20, .20, .17, .55),
+                Tape = Rgb(.93, .83, .61, .92),
+                Post = Rgb(.20, .19, .15),
+                Ball = Rgb(.95, .70, .20),
+                BallOutline = Rgb(.20, .18, .11),
+                Trail = Rgb(.87, .48, .19),
+                Background = Rgb(.22, .17, .12),
+                Glass = Rgb(.94, .87, .70, .94),
+                Text = Rgb(.20, .23, .18),
+                Accent = Rgb(.73, .34, .14),
+                TeamA = Rgb(.08, .39, .43),
+                TeamB = Rgb(.72, .28, .16),
+                Wallpaper = false
+            },
+            "saturday-broadcast" => classic with
+            {
+                Surface = Rgb(.10, .39, .45),
+                Service = Rgb(.16, .28, .39),
+                Line = Rgb(.98, .88, .64, .96),
+                Mesh = Rgb(.02, .08, .12, .48),
+                Strand = Rgb(.80, .84, .78, .38),
+                Tape = Rgb(.96, .56, .21, .96),
+                Post = Rgb(.04, .09, .13),
+                Ball = Rgb(1, .72, .12),
+                BallOutline = Rgb(.05, .08, .10),
+                Trail = Rgb(1, .45, .16),
+                Background = Rgb(.06, .12, .18),
+                Glass = Rgb(.03, .09, .14, .92),
+                Text = Rgb(.97, .91, .75),
+                Accent = Rgb(1, .57, .22),
+                TeamA = Rgb(.23, .83, .84),
+                TeamB = Rgb(.98, .38, .30),
+                Wallpaper = false
+            },
             _ => classic
         };
     }
